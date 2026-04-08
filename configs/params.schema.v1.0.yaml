@@ -1,0 +1,684 @@
+meta:
+  schema_version: "1.0.0"
+  spec_name: "universal_word_engine_yaml_spec"
+  profile_name: "formal_project_report_tw"
+  language: "zh-TW"
+  locale: "zh-TW"
+  document_type: "project_report"
+  output_formats:
+    - docx
+    - pdf
+
+project:
+  project_id: "A0011150001"
+  project_name: ""
+  document_title: ""
+  subtitle: ""
+  version: "v1.0"
+  status: "draft"
+  author: "文書蝦蝦"
+  organization: "cococlaw"
+  reviewer: ""
+  approver: ""
+  created_date: ""
+  updated_date: ""
+  confidentiality: "internal"
+  keywords: []
+  abstract_enabled: false
+
+paths:
+  source_md: "./documents/source.md"
+  source_refine_md: "./documents/refine_v1.0.md"
+  output_docx: "./documents/report_v1.0.docx"
+  output_pdf: "./documents/report_v1.0.pdf"
+  assets_dir: "./assets"
+  params_archive_dir: "./documents/params"
+  references_bib: "./documents/references.bib"
+  render_log: "./code/logs/render.log"
+  review_log: "./code/logs/review.log"
+  temp_dir: "./code/tmp"
+
+workflow:
+  refine_markdown_first: true
+  generate_intro: true
+  replace_original_intro: true
+  intro_max_chars: 300
+  auto_fix_heading_hierarchy: true
+  normalize_spacing: true
+  normalize_punctuation_zh: true
+  convert_fullwidth_halfwidth_contextually: true
+  preserve_markdown_tables: true
+  convert_fenced_code_to_codeblock: true
+  preserve_manual_page_break_markers: true
+  remove_empty_trailing_paragraphs: true
+  post_render_review: true
+  max_revision_rounds: 3
+  allow_uno_post_edit: true
+  allow_parameter_patch: true
+
+cover:
+  enabled: true
+  layout: "formal"
+  title_alignment: "center"
+  show_subtitle: true
+  show_project_id: true
+  show_version: true
+  show_author: true
+  show_organization: true
+  show_reviewer: false
+  show_approver: false
+  show_date: true
+  show_confidentiality: true
+  logo_path: ""
+  logo_width_cm: 0
+  extra_fields: []
+
+page:
+  size: "A4"
+  orientation: "portrait"
+  margin_top_cm: 2.54
+  margin_bottom_cm: 2.54
+  margin_left_cm: 3.17
+  margin_right_cm: 3.17
+  header_distance_cm: 1.27
+  footer_distance_cm: 1.27
+  mirror_margins: false
+  different_first_page: true
+  section_start: "new_page"
+
+header_footer:
+  header_enabled: true
+  footer_enabled: true
+  header_text_left: ""
+  header_text_center: ""
+  header_text_right: "{{document_title}}"
+  footer_text_left: "{{project_id}}"
+  footer_text_center: ""
+  footer_text_right: "第 {{page}} 頁 / 共 {{pages}} 頁"
+  page_number_style: "decimal"
+  page_number_start: 1
+
+fonts:
+  east_asia_default: "標楷體"
+  latin_default: "Times New Roman"
+  mono_default: "Consolas"
+  fallback_east_asia:
+    - "DFKai-SB"
+    - "BiauKai"
+    - "KaiTi"
+  fallback_latin:
+    - "Arial"
+    - "Liberation Serif"
+  fallback_mono:
+    - "Courier New"
+    - "Liberation Mono"
+
+colors:
+  text_primary: "#000000"
+  text_secondary: "#333333"
+  accent_primary: "#1F4E79"
+  accent_secondary: "#5B9BD5"
+  border_light: "#D9D9D9"
+  shading_code: "#F2F2F2"
+  shading_quote: "#F7F7F7"
+  hyperlink: "#0563C1"
+  caption: "#444444"
+
+toc:
+  enabled: true
+  title: "目錄"
+  levels: 3
+  right_align_page_numbers: true
+  use_hyperlinks: true
+  leader: "dots"
+  page_break_before: true
+
+list_of_figures:
+  enabled: false
+  title: "圖目錄"
+  right_align_page_numbers: true
+  use_hyperlinks: true
+  leader: "dots"
+  page_break_before: true
+
+list_of_tables:
+  enabled: false
+  title: "表目錄"
+  right_align_page_numbers: true
+  use_hyperlinks: true
+  leader: "dots"
+  page_break_before: true
+
+numbering:
+  heading_numbering_enabled: true
+  heading_numbering_style: "decimal"
+  heading_numbering_levels: 6
+  heading_formats:
+    level_1: "%1"
+    level_2: "%1.%2"
+    level_3: "%1.%2.%3"
+    level_4: "%1.%2.%3.%4"
+    level_5: "%1.%2.%3.%4.%5"
+    level_6: "%1.%2.%3.%4.%5.%6"
+
+headings:
+  level_1:
+    font_family: "標楷體"
+    font_size_pt: 18
+    color: "#000000"
+    bold: true
+    italic: false
+    underline: false
+    strike: false
+    alignment: "left"
+    line_spacing: 1.5
+    line_spacing_rule: "multiple"
+    space_before_pt: 18
+    space_after_pt: 12
+    indent_left_cm: 0
+    indent_right_cm: 0
+    first_line_indent_cm: 0
+    keep_with_next: true
+    keep_together: true
+    page_break_before: true
+    widow_control: true
+    outline_level: 1
+
+  level_2:
+    font_family: "標楷體"
+    font_size_pt: 16
+    color: "#000000"
+    bold: true
+    italic: false
+    underline: false
+    strike: false
+    alignment: "left"
+    line_spacing: 1.5
+    line_spacing_rule: "multiple"
+    space_before_pt: 15
+    space_after_pt: 9
+    indent_left_cm: 0
+    indent_right_cm: 0
+    first_line_indent_cm: 0
+    keep_with_next: true
+    keep_together: true
+    page_break_before: false
+    widow_control: true
+    outline_level: 2
+
+  level_3:
+    font_family: "標楷體"
+    font_size_pt: 14
+    color: "#000000"
+    bold: true
+    italic: false
+    underline: false
+    strike: false
+    alignment: "left"
+    line_spacing: 1.5
+    line_spacing_rule: "multiple"
+    space_before_pt: 12
+    space_after_pt: 6
+    indent_left_cm: 0
+    indent_right_cm: 0
+    first_line_indent_cm: 0
+    keep_with_next: true
+    keep_together: false
+    page_break_before: false
+    widow_control: true
+    outline_level: 3
+
+  level_4:
+    font_family: "標楷體"
+    font_size_pt: 13
+    color: "#000000"
+    bold: true
+    italic: false
+    underline: false
+    strike: false
+    alignment: "left"
+    line_spacing: 1.5
+    line_spacing_rule: "multiple"
+    space_before_pt: 9
+    space_after_pt: 4
+    indent_left_cm: 0.5
+    indent_right_cm: 0
+    first_line_indent_cm: 0
+    keep_with_next: true
+    keep_together: false
+    page_break_before: false
+    widow_control: true
+    outline_level: 4
+
+  level_5:
+    font_family: "標楷體"
+    font_size_pt: 12
+    color: "#000000"
+    bold: true
+    italic: false
+    underline: false
+    strike: false
+    alignment: "left"
+    line_spacing: 1.5
+    line_spacing_rule: "multiple"
+    space_before_pt: 6
+    space_after_pt: 3
+    indent_left_cm: 1.0
+    indent_right_cm: 0
+    first_line_indent_cm: 0
+    keep_with_next: true
+    keep_together: false
+    page_break_before: false
+    widow_control: true
+    outline_level: 5
+
+  level_6:
+    font_family: "標楷體"
+    font_size_pt: 12
+    color: "#000000"
+    bold: false
+    italic: true
+    underline: false
+    strike: false
+    alignment: "left"
+    line_spacing: 1.5
+    line_spacing_rule: "multiple"
+    space_before_pt: 4
+    space_after_pt: 2
+    indent_left_cm: 1.5
+    indent_right_cm: 0
+    first_line_indent_cm: 0
+    keep_with_next: false
+    keep_together: false
+    page_break_before: false
+    widow_control: true
+    outline_level: 6
+
+paragraphs:
+  body_1:
+    font_family_east_asia: "標楷體"
+    font_family_latin: "Times New Roman"
+    font_size_pt: 12
+    color: "#000000"
+    bold: false
+    italic: false
+    underline: false
+    strike: false
+    alignment: "justify"
+    line_spacing: 1.5
+    line_spacing_rule: "multiple"
+    space_before_pt: 0
+    space_after_pt: 6
+    indent_left_cm: 0
+    indent_right_cm: 0
+    first_line_indent_cm: 0.74
+    widow_control: true
+    keep_together: false
+    keep_with_next: false
+
+  body_2:
+    font_family_east_asia: "標楷體"
+    font_family_latin: "Times New Roman"
+    font_size_pt: 11.5
+    color: "#000000"
+    bold: false
+    italic: false
+    underline: false
+    strike: false
+    alignment: "justify"
+    line_spacing: 1.4
+    line_spacing_rule: "multiple"
+    space_before_pt: 0
+    space_after_pt: 4
+    indent_left_cm: 0
+    indent_right_cm: 0
+    first_line_indent_cm: 0.74
+
+  body_3:
+    font_family_east_asia: "標楷體"
+    font_family_latin: "Times New Roman"
+    font_size_pt: 11
+    color: "#000000"
+    bold: false
+    italic: false
+    underline: false
+    strike: false
+    alignment: "left"
+    line_spacing: 1.3
+    line_spacing_rule: "multiple"
+    space_before_pt: 0
+    space_after_pt: 3
+    indent_left_cm: 0
+    indent_right_cm: 0
+    first_line_indent_cm: 0.5
+
+  body_4_note:
+    font_family_east_asia: "標楷體"
+    font_family_latin: "Times New Roman"
+    font_size_pt: 10.5
+    color: "#333333"
+    bold: false
+    italic: false
+    underline: false
+    strike: false
+    alignment: "left"
+    line_spacing: 1.2
+    line_spacing_rule: "multiple"
+    space_before_pt: 3
+    space_after_pt: 3
+    indent_left_cm: 0
+    indent_right_cm: 0
+    first_line_indent_cm: 0
+
+  body_5_quote:
+    font_family_east_asia: "標楷體"
+    font_family_latin: "Times New Roman"
+    font_size_pt: 11
+    color: "#333333"
+    bold: false
+    italic: false
+    underline: false
+    strike: false
+    alignment: "justify"
+    line_spacing: 1.4
+    line_spacing_rule: "multiple"
+    space_before_pt: 6
+    space_after_pt: 6
+    indent_left_cm: 1.0
+    indent_right_cm: 1.0
+    first_line_indent_cm: 0
+    shading: "#F7F7F7"
+
+  body_6_compact:
+    font_family_east_asia: "標楷體"
+    font_family_latin: "Times New Roman"
+    font_size_pt: 10.5
+    color: "#000000"
+    bold: false
+    italic: false
+    underline: false
+    strike: false
+    alignment: "justify"
+    line_spacing: 1.15
+    line_spacing_rule: "multiple"
+    space_before_pt: 0
+    space_after_pt: 2
+    indent_left_cm: 0
+    indent_right_cm: 0
+    first_line_indent_cm: 0.5
+
+lists:
+  bullet:
+    font_family_east_asia: "標楷體"
+    font_family_latin: "Times New Roman"
+    font_size_pt: 12
+    color: "#000000"
+    bold: false
+    italic: false
+    underline: false
+    strike: false
+    line_spacing: 1.5
+    line_spacing_rule: "multiple"
+    indent_left_cm: 0.74
+    first_line_indent_cm: -0.5
+    bullet_style: "disc"
+    nested_bullet_styles:
+      level_1: "disc"
+      level_2: "circle"
+      level_3: "square"
+
+  numbered:
+    font_family_east_asia: "標楷體"
+    font_family_latin: "Times New Roman"
+    font_size_pt: 12
+    color: "#000000"
+    bold: false
+    italic: false
+    underline: false
+    strike: false
+    line_spacing: 1.5
+    line_spacing_rule: "multiple"
+    indent_left_cm: 0.74
+    first_line_indent_cm: -0.5
+    number_style: "decimal"
+    nested_number_styles:
+      level_1: "decimal"
+      level_2: "lowerLetter"
+      level_3: "lowerRoman"
+
+code:
+  block:
+    enabled: true
+    font_family: "Consolas"
+    fallback_font_family: "Courier New"
+    font_size_pt: 10.5
+    color: "#000000"
+    background_color: "#F2F2F2"
+    border_enabled: false
+    border_color: "#D9D9D9"
+    border_width_pt: 0.5
+    line_spacing: 1.15
+    line_spacing_rule: "multiple"
+    space_before_pt: 6
+    space_after_pt: 6
+    indent_left_cm: 0.5
+    indent_right_cm: 0.5
+    first_line_indent_cm: 0
+    keep_together: true
+    syntax_hint_from_fence: true
+    show_line_numbers: false
+    tab_width_spaces: 4
+
+  inline:
+    enabled: true
+    font_family: "Consolas"
+    fallback_font_family: "Courier New"
+    font_size_pt: 10.5
+    color: "#000000"
+    background_color: "#F2F2F2"
+    bold: false
+    italic: false
+    underline: false
+    strike: false
+
+images:
+  download_remote_images: true
+  use_proxy_for_download: true
+  default_alignment: "center"
+  max_width_cm: 15.5
+  keep_aspect_ratio: true
+  space_before_pt: 6
+  space_after_pt: 6
+  insert_caption: true
+  caption_position: "below"
+  caption_style: "figure_caption"
+  caption_prefix: "圖"
+  numbering_mode: "flat"
+  numbering_modes_supported:
+    - flat
+    - chapter
+  numbering_separator: " "
+  chapter_separator: "-"
+  alt_text_from_filename: true
+  source_note_enabled: false
+  source_note_prefix: "資料來源："
+  wrap_style: "inline"
+  placement_rule: "nearest_paragraph"
+
+tables:
+  enabled: true
+  table_style: "Table Grid"
+  width_mode: "auto_fit"
+  default_alignment: "center"
+  first_row_bold: true
+  first_row_bg_color: "#D9E2F3"
+  border_color: "#BFBFBF"
+  border_width_pt: 0.5
+  cell_padding_pt: 3
+  allow_row_break_across_pages: false
+  repeat_header_row: true
+  caption_enabled: true
+  caption_position: "above"
+  caption_prefix: "表"
+  numbering_mode: "flat"
+  numbering_modes_supported:
+    - flat
+    - chapter
+  chapter_separator: "-"
+  caption_style: "table_caption"
+
+captions:
+  figure_caption:
+    font_family_east_asia: "標楷體"
+    font_family_latin: "Times New Roman"
+    font_size_pt: 10.5
+    color: "#444444"
+    bold: false
+    italic: false
+    underline: false
+    strike: false
+    alignment: "center"
+    line_spacing: 1.15
+    line_spacing_rule: "multiple"
+    space_before_pt: 3
+    space_after_pt: 6
+
+  table_caption:
+    font_family_east_asia: "標楷體"
+    font_family_latin: "Times New Roman"
+    font_size_pt: 10.5
+    color: "#444444"
+    bold: false
+    italic: false
+    underline: false
+    strike: false
+    alignment: "center"
+    line_spacing: 1.15
+    line_spacing_rule: "multiple"
+    space_before_pt: 3
+    space_after_pt: 6
+
+cross_references:
+  enabled: true
+  style: "ieee"
+  styles_supported:
+    - ieee
+    - apa
+  figure_reference_format:
+    ieee: "圖 {number}"
+    apa: "圖 {number}"
+  table_reference_format:
+    ieee: "表 {number}"
+    apa: "表 {number}"
+  heading_reference_format:
+    ieee: "第 {number} 節"
+    apa: "第 {number} 節"
+  equation_reference_format:
+    ieee: "式 ({number})"
+    apa: "式 ({number})"
+  bookmark_prefix_figure: "fig_"
+  bookmark_prefix_table: "tbl_"
+  bookmark_prefix_heading: "sec_"
+  bookmark_prefix_equation: "eq_"
+  hyperlink_enabled: true
+
+references:
+  enabled: true
+  section_title: "參考文獻"
+  page_break_before: true
+  style: "ieee"
+  styles_supported:
+    - ieee
+    - apa
+  citation_format:
+    ieee:
+      in_text_single: "[{index}]"
+      in_text_multiple: "[{index1}, {index2}]"
+      bibliography_order: "appearance"
+    apa:
+      in_text_single: "({author}, {year})"
+      in_text_multiple: "({author1}, {year1}; {author2}, {year2})"
+      bibliography_order: "alphabetical"
+  bibliography_hanging_indent_cm: 0.74
+  bibliography_line_spacing: 1.2
+  bibliography_space_after_pt: 3
+  bibliography_alignment: "left"
+  url_style: "plain"
+  doi_style: "plain"
+  et_al_threshold: 3
+
+footnotes:
+  enabled: true
+  numbering_style: "decimal"
+  restart_each_section: false
+  font_size_pt: 9
+  line_spacing: 1.0
+
+equations:
+  enabled: false
+  numbering_enabled: true
+  numbering_mode: "chapter"
+  numbering_modes_supported:
+    - flat
+    - chapter
+  prefix: "式"
+  format: "({number})"
+  alignment: "center"
+
+appendix:
+  enabled: true
+  title: "附錄"
+  numbering_style: "alphabetic"
+  page_break_before: true
+
+quality_control:
+  review_after_render: true
+  checklist:
+    - heading_hierarchy_consistent
+    - toc_exists
+    - figure_numbering_consistent
+    - table_numbering_consistent
+    - references_resolved
+    - bibliography_style_correct
+    - cross_references_resolved
+    - no_broken_image_links
+    - code_style_applied
+    - intro_rewritten
+    - font_consistency_checked
+    - page_breaks_checked
+    - pdf_export_success
+  max_revision_rounds: 3
+  allow_uno_postfix: true
+  allow_parameter_patch: true
+
+export:
+  save_docx: true
+  save_pdf: true
+  pdf_export_engine: "libreoffice"
+  update_fields_before_export: true
+  refresh_toc_before_export: true
+  refresh_figure_table_lists_before_export: true
+  embed_fonts_if_possible: false
+
+cloud_sync:
+  enabled: true
+  provider: "nextcloud"
+  upload_docx: true
+  upload_pdf: true
+  upload_refine_md: true
+  upload_params_yaml: true
+  upload_render_logs: true
+  remote_project_root: "/project_document/{{project_id}}/"
+  remote_documents_dir: "/project_document/{{project_id}}/documents/"
+  remote_assets_dir: "/project_document/{{project_id}}/assets/"
+  remote_code_dir: "/project_document/{{project_id}}/code/"
+  remote_params_dir: "/project_document/{{project_id}}/documents/params/"
+  remote_share_link_enabled: true
+  remote_share_link_scope: "documents_only"
+
+logging:
+  enabled: true
+  save_render_log: true
+  save_review_log: true
+  log_level: "info"
+  include_timestamps: true
