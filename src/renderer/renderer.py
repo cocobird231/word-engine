@@ -16,14 +16,159 @@ import tempfile
 import urllib.request
 from docx import Document
 from markdown_it import MarkdownIt
-from docx.shared import Pt, Inches
+from docx.shared import Pt, Inches, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.oxml.ns import qn
+from docx.oxml import OxmlElement
 from src.renderer.cover import render_cover
 from src.renderer.toc import render_toc
 from src.renderer.caption import CaptionCounter, add_figure_caption, add_table_caption
 from src.renderer.cross_reference import (
     ReferenceRegistry, BookmarkManager, add_bookmark
 )
+
+
+def _hex_to_rgb(hex_color):
+    """Convert #RRGGBB to (R, G, B) tuple."""
+    hex_color = hex_color.lstrip("#")
+    return tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
+
+
+def _add_paragraph_shading(paragraph, bg_hex):
+    """Add background shading to a paragraph via OOXML pPr/shd element."""
+    pPr = paragraph._p.get_or_add_pPr()
+    shd = OxmlElement("w:shd")
+    bg = bg_hex.lstrip("#")
+    shd.set(qn("w:val"), "clear")
+    shd.set(qn("w:color"), "auto")
+    shd.set(qn("w:fill"), bg)
+    pPr.append(shd)
+
+
+def _add_run_shading(run, bg_hex):
+    """Add background highlight shading to a run via OOXML rPr/shd element."""
+    rPr = run._r.get_or_add_rPr()
+    shd = OxmlElement("w:shd")
+    bg = bg_hex.lstrip("#")
+    shd.set(qn("w:val"), "clear")
+    shd.set(qn("w:color"), "auto")
+    shd.set(qn("w:fill"), bg)
+    rPr.append(shd)
+
+
+def _add_anchor_hyperlink(paragraph, display_text, bookmark_name, params):
+    """
+    Add an internal anchor hyperlink to a paragraph that links to a Word bookmark.
+
+    This creates a Word internal hyperlink (w:hyperlink w:anchor) pointing to
+    the bookmark created by add_bookmark() for the referenced figure/table/heading.
+    
+    Falls back to plain text if cross_references.hyperlink_enabled is False.
+    """
+    xref_cfg = params.get("cross_references", {})
+    hyperlink_enabled = xref_cfg.get("hyperlink_enabled", True)
+
+    if not hyperlink_enabled:
+        paragraph.add_run(display_text)
+        return
+
+    # Create <w:hyperlink w:anchor="bookmark_name">
+    hyperlink = OxmlElement("w:hyperlink")
+    hyperlink.set(qn("w:anchor"), bookmark_name)
+
+    r = OxmlElement("w:r")
+    rPr = OxmlElement("w:rPr")
+    # Apply Hyperlink style (blue + underline)
+    rStyle = OxmlElement("w:rStyle")
+    rStyle.set(qn("w:val"), "Hyperlink")
+    rPr.append(rStyle)
+    r.append(rPr)
+
+    t = OxmlElement("w:t")
+    t.text = display_text
+    r.append(t)
+    hyperlink.append(r)
+    paragraph._p.append(hyperlink)
+
+
+def _render_inline_content(paragraph, inline_token, registry, params):
+    """
+    Render an inline token's children into the paragraph with proper formatting.
+    Handles: plain text, bold, italic, code_inline (monospace + shading), softbreak.
+    Falls back to content string if children are not available.
+    """
+    code_cfg = params.get("code", {}).get("inline", {})
+    code_font = code_cfg.get("font_family", "Consolas")
+    code_size_pt = code_cfg.get("font_size_pt", 10.5)
+    code_bg = code_cfg.get("background_color", "#F2F2F2")
+
+    children = inline_token.children if inline_token.children else []
+
+    if not children:
+        # Fallback: substitute and add as plain text
+        text = registry.substitute(inline_token.content)
+        paragraph.add_run(text)
+        return
+
+    i = 0
+    while i < len(children):
+        child = children[i]
+
+        if child.type == "code_inline":
+            run = paragraph.add_run(child.content)
+            run.font.name = code_font
+            run.font.size = Pt(code_size_pt)
+            _add_run_shading(run, code_bg)
+
+        elif child.type == "text":
+            # Check if text contains {{ref:*}} markers; if so, render as hyperlinks
+            from src.renderer.cross_reference import REF_PATTERN, BookmarkManager
+            raw = child.content
+            if REF_PATTERN.search(raw):
+                last_end = 0
+                for m in REF_PATTERN.finditer(raw):
+                    # Plain text before this ref
+                    if m.start() > last_end:
+                        paragraph.add_run(raw[last_end:m.start()])
+                    ref_id = m.group(1)
+                    display = registry.resolve(ref_id)
+                    # Determine bookmark name from ref_id
+                    bm_name = ref_id.replace("-", "_")
+                    _add_anchor_hyperlink(paragraph, display, bm_name, params)
+                    last_end = m.end()
+                if last_end < len(raw):
+                    paragraph.add_run(raw[last_end:])
+            else:
+                paragraph.add_run(raw)
+
+        elif child.type == "softbreak":
+            paragraph.add_run(" ")
+
+        elif child.type == "hardbreak":
+            paragraph.add_run("\n")
+
+        elif child.type == "strong_open":
+            # collect until strong_close
+            i += 1
+            bold_text = ""
+            while i < len(children) and children[i].type != "strong_close":
+                if children[i].type == "text":
+                    bold_text += children[i].content
+                i += 1
+            run = paragraph.add_run(bold_text)
+            run.bold = True
+
+        elif child.type == "em_open":
+            i += 1
+            em_text = ""
+            while i < len(children) and children[i].type != "em_close":
+                if children[i].type == "text":
+                    em_text += children[i].content
+                i += 1
+            run = paragraph.add_run(em_text)
+            run.italic = True
+
+        i += 1
 
 
 def _apply_heading_style(run, level, params):
@@ -264,8 +409,8 @@ def _render_tokens(doc, tokens, params, counter, registry, bm_mgr):
                             if child.type == "image":
                                 _render_image(doc, child, counter, registry, bm_mgr, params)
                     else:
-                        text = registry.substitute(inline_token.content)
-                        doc.add_paragraph(text)
+                        p = doc.add_paragraph()
+                        _render_inline_content(p, inline_token, registry, params)
 
         # ── Lists ──
         elif token.type == "bullet_list_open":
@@ -310,17 +455,25 @@ def _render_tokens(doc, tokens, params, counter, registry, bm_mgr):
 
         # ── Code Blocks ──
         elif token.type == "fence":
-            content = token.content
-            if content.endswith("\n"):
-                content = content[:-1]
+            code_content = token.content
+            if code_content.endswith("\n"):
+                code_content = code_content[:-1]
+            code_cfg = params.get("code", {}).get("block", {})
+            code_font = code_cfg.get("font_family", "Consolas")
+            code_size_pt = code_cfg.get("font_size_pt", 10.5)
+            code_bg = code_cfg.get("background_color", "#F2F2F2")
+            indent_cm = code_cfg.get("indent_left_cm", 0.5)
             p = doc.add_paragraph()
             try:
                 p.style = doc.styles["Macro Text"]
             except KeyError:
                 p.style = doc.styles["Normal"]
-            run = p.add_run(content)
-            run.font.name = "Courier New"
-            p.paragraph_format.left_indent = Inches(0.5)
+            run = p.add_run(code_content)
+            run.font.name = code_font
+            run.font.size = Pt(code_size_pt)
+            p.paragraph_format.left_indent = Inches(indent_cm)
+            # Apply background shading from params
+            _add_paragraph_shading(p, code_bg)
 
         i += 1
 

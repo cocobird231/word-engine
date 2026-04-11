@@ -133,7 +133,13 @@ def render_toc(doc, params):
 
     # ── TOC Field ────────────────────────────────────────────────────────
     toc_field = _make_toc_field(levels=levels, use_hyperlinks=use_hyperlinks)
-    doc.element.body.append(toc_field)
+    # Insert after the last body child currently added (NOT append to end of body).
+    # doc.element.body.append() always puts the element at the very end of the
+    # document, regardless of where we are in the render sequence.
+    # doc.element.body[-1] is <w:sectPr>, not the last paragraph.
+    # Must use the actual last paragraph element so addnext inserts in the right place.
+    last_para = doc.paragraphs[-1]._p
+    last_para.addnext(toc_field)
 
     # ── Page break after TOC ─────────────────────────────────────────────
     doc.add_page_break()
