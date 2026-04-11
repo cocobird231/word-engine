@@ -142,12 +142,14 @@ def run_rerender(md_path, params_path, project_dir=".", label=None, force=False)
 
 def run_postfix(docx_path):
     """
-    UNO post-processing step (Phase 2 stub, Phase 3 real implementation).
+    UNO post-processing step (Phase 2 implementation).
 
-    Use when: render output needs manual fine-tuning that cannot be achieved
-    via params.yaml changes alone (e.g. TOC update, page break adjustment).
+    Use when: render output needs field update (TOC, page numbers) after
+    rendering. This version uses LibreOffice headless re-save to trigger
+    LO's internal field update pipeline.
 
-    Currently a pass-through. Phase 3 will wire in LibreOffice UNO API.
+    Not a pass-through as of Phase 2. Phase 3 will add fine-grained
+    Writer API control via UNO socket bridge.
     """
     print(f"[POSTFIX] Post-processing: {docx_path}")
     result = run_post_process(docx_path, params={})
