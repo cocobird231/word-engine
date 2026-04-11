@@ -7,7 +7,7 @@ from src.linter.linter import lint_markdown
 from src.validator.validator import validate_params
 from src.normalizer.normalizer import normalize_markdown
 from src.renderer.renderer import render_docx
-from src.exporter.exporter import export_pdf
+from src.exporter.exporter import export_pdf, ExportError
 from src.reporter.reporter import generate_qc_report
 from src.post_processor_uno.post_processor import run_post_process
 from src.syncer.syncer import sync_to_cloud
@@ -63,7 +63,11 @@ def run_render(md_path, params_path, output_docx="output.docx"):
 def run_export(docx_path, output_pdf="output.pdf"):
     """Export docx to pdf."""
     print(f"[EXPORT] Exporting {docx_path} to {output_pdf}...")
-    pdf_path = export_pdf(docx_path, output_pdf)
+    try:
+        pdf_path = export_pdf(docx_path, output_pdf)
+    except ExportError as e:
+        print(f"[EXPORT] Failed: {e}")
+        return None
 
     # Phase 1 stub: skip cloud sync
     sync_to_cloud([docx_path, pdf_path], config={})
