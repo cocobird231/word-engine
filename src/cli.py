@@ -17,7 +17,7 @@ Semantic notes:
   - Use `run` for quick end-to-end checks without version tracking.
 """
 import argparse
-from src.pipeline import run_qc, run_render, run_rerender, run_export, run_postfix, run_all
+from src.pipeline import run_qc, run_render, run_rerender, run_export, run_postfix, run_review, run_all
 
 
 def main():
@@ -83,6 +83,29 @@ def main():
     )
     postfix_parser.add_argument("--docx", required=True, metavar="PATH", help="Path to .docx to post-process")
 
+    # ── review ───────────────────────────────────────────────────────────────
+    review_parser = subparsers.add_parser(
+        "review",
+        help=(
+            "Full review loop: QC → rerender → postfix → export. "
+            "Records status in review_state.json."
+        )
+    )
+    review_parser.add_argument("--md", required=True, metavar="PATH", help="Path to refine.md")
+    review_parser.add_argument("--params", required=True, metavar="PATH", help="Path to params.yaml")
+    review_parser.add_argument(
+        "--project-dir", default=".", metavar="DIR",
+        help="Project root directory (default: .)"
+    )
+    review_parser.add_argument(
+        "--label", default=None, metavar="LABEL",
+        help="Optional label for this review version"
+    )
+    review_parser.add_argument(
+        "--skip-postfix", action="store_true",
+        help="Skip UNO postfix step for faster iteration"
+    )
+
     # ── run ──────────────────────────────────────────────────────────────────
     run_parser = subparsers.add_parser(
         "run",
@@ -110,6 +133,14 @@ def main():
         run_export(args.docx, args.output)
     elif args.command == "postfix":
         run_postfix(args.docx)
+    elif args.command == "review":
+        run_review(
+            md_path=args.md,
+            params_path=args.params,
+            project_dir=args.project_dir,
+            label=args.label,
+            skip_postfix=args.skip_postfix,
+        )
     elif args.command == "run":
         run_all(args.md, args.params)
     else:

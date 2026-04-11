@@ -6,6 +6,7 @@ Phase 2 additions:
 - run_rerender(): versioned re-render with params snapshot
 - run_postfix(): UNO post-processor stub (Phase 2 prep)
 """
+import os
 from src.loader.loader import load_project
 from src.linter.linter import lint_markdown
 from src.validator.validator import validate_params
@@ -16,6 +17,7 @@ from src.reporter.reporter import generate_qc_report
 from src.post_processor_uno.post_processor import run_post_process
 from src.syncer.syncer import sync_to_cloud
 from src.state_manager.render_state import RenderState
+from src.state_manager.review_state import ReviewState
 
 
 def run_qc(md_path, params_path):
@@ -170,6 +172,90 @@ def run_export(docx_path, output_pdf="output.pdf"):
     sync_to_cloud([docx_path, pdf_path], config={})
     print(f"[EXPORT] Successfully exported: {pdf_path}")
     return pdf_path
+
+
+def run_review(md_path, params_path, project_dir=".", label=None, skip_postfix=False):
+    """
+    Full review loop pipeline (Phase 2).
+
+    Orchestrates the complete review cycle:
+      QC → rerender (versioned) → postfix → export → status report
+
+    Each step is recorded in review_state.json alongside render_state.json.
+    The review loop can be run multiple times; each run increments both the
+    render version and the review round counter.
+
+    Args:
+        md_path: Path to the markdown file (refine.md).
+        params_path: Path to the current params.yaml.
+        project_dir: Project root directory (where render_state.json lives).
+        label: Optional label for this review version (e.g. 'fix-indent').
+        skip_postfix: If True, skip the UNO postfix step (faster iteration).
+
+    Returns:
+        Dict with paths to produced artifacts, or None on failure.
+    """
+    print("[REVIEW] Starting review loop...")
+    review = ReviewState(project_dir)
+
+    # ── Step 1: QC ─────────────────────────────────────────────────────────
+    print("[REVIEW] Step 1/4: QC check")
+    qc_result = run_qc(md_path, params_path)
+    if not qc_result["qc_passed"]:
+        print("[REVIEW] QC failed — review loop aborted. Fix issues and retry.")
+        return None
+    print("[REVIEW] QC passed.")
+
+    # ── Step 2: Rerender (versioned) ───────────────────────────────────────
+    print("[REVIEW] Step 2/4: Versioned rerender")
+    docx_path = run_rerender(
+        md_path=md_path,
+        params_path=params_path,
+        project_dir=project_dir,
+        label=label,
+    )
+    if not docx_path:
+        print("[REVIEW] Rerender failed — review loop aborted.")
+        return None
+
+    # Start / advance review round using the current render version
+    render_state = RenderState(project_dir)
+    review.start_new_round(render_state.current_version)
+    review.mark_step("qc_passed")
+    review.mark_step("rendered", artifact_path=docx_path)
+    print(f"[REVIEW] Rendered: {docx_path}")
+
+    # ── Step 3: Postfix ────────────────────────────────────────────────────
+    if not skip_postfix:
+        print("[REVIEW] Step 3/4: UNO postfix")
+        postfixed = run_postfix(docx_path)
+        review.mark_step("postfixed")
+        print(f"[REVIEW] Postfixed: {postfixed}")
+    else:
+        print("[REVIEW] Step 3/4: Postfix skipped (--skip-postfix)")
+        review.mark_step("postfixed")
+
+    # ── Step 4: Export PDF ─────────────────────────────────────────────────
+    print("[REVIEW] Step 4/4: Export PDF")
+    ver = render_state.current_version
+    pdf_path = os.path.join(project_dir, "documents", f"report_v{ver}.pdf")
+    pdf_result = run_export(docx_path, output_pdf=pdf_path)
+    if pdf_result:
+        review.mark_step("exported", artifact_path=pdf_result)
+        print(f"[REVIEW] Exported: {pdf_result}")
+    else:
+        print("[REVIEW] PDF export failed. Check LibreOffice installation.")
+
+    # ── Status Report ──────────────────────────────────────────────────────
+    print()
+    print(review.summary())
+
+    return {
+        "version": ver,
+        "docx": docx_path,
+        "pdf": pdf_result,
+        "review_state_path": review.state_path,
+    }
 
 
 def run_all(md_path, params_path):
