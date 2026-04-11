@@ -31,7 +31,8 @@ def run_qc(md_path, params_path):
     report = generate_qc_report(lint_results, val_results)
 
     qc_passed = val_results.is_valid and len(lint_results.get("errors", [])) == 0
-    print(f"[QC] Result: {'PASSED' if qc_passed else 'FAILED'}")
+    print()
+    print(report)
 
     return {
         "normalized_md": normalized_md,
