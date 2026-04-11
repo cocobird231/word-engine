@@ -6,6 +6,7 @@ from docx import Document
 from markdown_it import MarkdownIt
 from docx.shared import Pt, Inches
 from docx.enum.text import WD_ALIGN_PARAGRAPH
+from src.renderer.cover import render_cover
 
 def _apply_heading_style(run, level, params):
     """Apply basic heading styles from params if available."""
@@ -129,7 +130,10 @@ def render_docx(md_text, params, output_path):
     """
     doc = Document()
     md = MarkdownIt()
-    
+
+    # Phase 2: render cover page first if enabled
+    render_cover(doc, params)
+
     tokens = md.parse(md_text)
     _render_tokens(doc, tokens, params)
     
