@@ -59,7 +59,7 @@ class CaptionCounter:
 
     def next_figure(self, mode="flat", separator="-"):
         """
-        Return the next figure number string.
+        Return the next figure number string (increments counter).
 
         Args:
             mode: "flat" → "1" / "2"; "chapter" → "2-1" / "2-2"
@@ -75,9 +75,21 @@ class CaptionCounter:
             return f"{ch}{separator}{self._figure_in_ch}"
         return str(self._figure)
 
+    def peek_next_figure(self, mode="flat", separator="-"):
+        """
+        Preview what the next figure number will be WITHOUT incrementing the counter.
+        Used by the cross-reference registry to pre-register before caption renders.
+        """
+        next_fig = self._figure + 1
+        next_fig_ch = self._figure_in_ch + 1
+        if mode == "chapter":
+            ch = self._chapter if self._chapter > 0 else 1
+            return f"{ch}{separator}{next_fig_ch}"
+        return str(next_fig)
+
     def next_table(self, mode="flat", separator="-"):
         """
-        Return the next table number string.
+        Return the next table number string (increments counter).
 
         Args:
             mode: "flat" → "1" / "2"; "chapter" → "3-1" / "3-2"
@@ -92,6 +104,17 @@ class CaptionCounter:
             ch = self._chapter if self._chapter > 0 else 1
             return f"{ch}{separator}{self._table_in_ch}"
         return str(self._table)
+
+    def peek_next_table(self, mode="flat", separator="-"):
+        """
+        Preview what the next table number will be WITHOUT incrementing the counter.
+        """
+        next_tbl = self._table + 1
+        next_tbl_ch = self._table_in_ch + 1
+        if mode == "chapter":
+            ch = self._chapter if self._chapter > 0 else 1
+            return f"{ch}{separator}{next_tbl_ch}"
+        return str(next_tbl)
 
 
 def add_figure_caption(doc, alt_text, counter, params):

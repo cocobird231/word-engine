@@ -8,18 +8,22 @@ Phase 2 additions:
   - Image rendering with figure caption and numbering
   - Table rendering with table caption and numbering
   - H1 chapter tracking for 'chapter' numbering mode
+  - Cross-reference: {{ref:fig-1}}, {{ref:tbl-1}}, {{ref:sec-1}} substitution
+  - Bookmarks added to figure/table captions and headings
 """
-import re
 import os
 import tempfile
 import urllib.request
 from docx import Document
 from markdown_it import MarkdownIt
-from docx.shared import Pt, Inches, Emu
+from docx.shared import Pt, Inches
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from src.renderer.cover import render_cover
 from src.renderer.toc import render_toc
 from src.renderer.caption import CaptionCounter, add_figure_caption, add_table_caption
+from src.renderer.cross_reference import (
+    ReferenceRegistry, BookmarkManager, add_bookmark
+)
 
 
 def _apply_heading_style(run, level, params):
@@ -33,51 +37,51 @@ def _apply_heading_style(run, level, params):
         run.font.size = Pt(14)
 
 
-def _render_image(doc, token, counter, params):
-    """
-    Render an image inline token and its caption.
+def _heading_path_to_str(path):
+    """Convert heading path list to display string, e.g. [2,1,0] → '2.1'."""
+    return ".".join(str(n) for n in path if n > 0)
 
-    Tries to insert the image from local path or URL.
-    Falls back to a placeholder paragraph if the image cannot be loaded.
-    """
+
+def _render_image(doc, token, counter, registry, bm_mgr, params):
+    """Render an image inline token with figure caption and bookmark."""
     images_cfg = params.get("images", {})
     max_width_cm = images_cfg.get("max_width_cm", 15.5)
 
-    # Extract src and alt from token children
     src = ""
     alt = ""
-    if token.children:
-        for child in token.children:
-            if child.type == "image":
-                src = child.attrGet("src") or ""
-                alt = child.content or ""
-            elif child.type == "text":
-                alt = child.content or alt
-
-    # Determine src and alt from token attrs directly if children method didn't work
-    if not src and hasattr(token, "attrs") and token.attrs:
+    if hasattr(token, "attrs") and token.attrs:
         src = token.attrs.get("src", "")
-        alt = token.attrs.get("alt", alt)
+        alt = token.attrs.get("alt", "")
+    if not alt and token.children:
+        for child in token.children:
+            if child.type == "text":
+                alt = child.content
+                break
 
-    # Add figure caption before image if caption_position is "above" (unusual but supported)
     caption_position = images_cfg.get("caption_position", "below")
-    if caption_position == "above":
-        add_figure_caption(doc, alt, counter, params)
 
-    # Try to insert the image
+    if caption_position == "above":
+        mode = images_cfg.get("numbering_mode", "flat")
+        sep = images_cfg.get("chapter_separator", "-")
+        num = counter.peek_next_figure(mode=mode, separator=sep)
+        ref_id = registry.register_figure(num)
+        p_cap = add_figure_caption(doc, alt, counter, params)
+        if p_cap:
+            bm_id, bm_name = bm_mgr.figure_bookmark(counter._figure)
+            add_bookmark(p_cap, bm_id, bm_name)
+
+    # Insert image or placeholder
     image_inserted = False
     if src:
         local_path = None
         tmp_file = None
         try:
             if src.startswith("http://") or src.startswith("https://"):
-                # Download to temp file
                 if images_cfg.get("download_remote_images", True):
                     tmp_file = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
                     urllib.request.urlretrieve(src, tmp_file.name)
                     local_path = tmp_file.name
             else:
-                # Local file path
                 if os.path.exists(src):
                     local_path = src
 
@@ -87,9 +91,7 @@ def _render_image(doc, token, counter, params):
                 run = p.add_run()
                 run.add_picture(local_path, width=Inches(max_width_cm / 2.54))
                 image_inserted = True
-
         except Exception:
-            # Image failed to load — fall through to placeholder
             pass
         finally:
             if tmp_file:
@@ -99,28 +101,26 @@ def _render_image(doc, token, counter, params):
                     pass
 
     if not image_inserted:
-        # Placeholder when image can't be loaded
         p = doc.add_paragraph()
         p.alignment = WD_ALIGN_PARAGRAPH.CENTER
         run = p.add_run(f"[圖片: {src or alt or '無法載入'}]")
         run.font.size = Pt(10)
         run.italic = True
 
-    # Add caption below image (default)
     if caption_position != "above":
-        add_figure_caption(doc, alt, counter, params)
+        mode = images_cfg.get("numbering_mode", "flat")
+        sep = images_cfg.get("chapter_separator", "-")
+        num = counter.peek_next_figure(mode=mode, separator=sep)
+        # Register BEFORE add_figure_caption so {{ref:fig-N}} in same doc resolves
+        ref_id = registry.register_figure(num)
+        p_cap = add_figure_caption(doc, alt, counter, params)
+        if p_cap:
+            bm_id, bm_name = bm_mgr.figure_bookmark(counter._figure)
+            add_bookmark(p_cap, bm_id, bm_name)
 
 
-def _render_table(doc, token_group, counter, params):
-    """
-    Render a markdown table token group and its caption.
-
-    Args:
-        doc: python-docx Document.
-        token_group: Dict with 'headers' (list[str]) and 'rows' (list[list[str]]).
-        counter: CaptionCounter instance.
-        params: Parsed params.yaml dict.
-    """
+def _render_table(doc, token_group, counter, registry, bm_mgr, params):
+    """Render a markdown table with caption and bookmark."""
     tables_cfg = params.get("tables", {})
     caption_position = tables_cfg.get("caption_position", "above")
 
@@ -130,15 +130,20 @@ def _render_table(doc, token_group, counter, params):
     if not headers and not rows:
         return
 
-    # Caption above (default for tables)
-    if caption_position == "above":
-        add_table_caption(doc, "", counter, params)
+    mode = tables_cfg.get("numbering_mode", "flat")
+    sep = tables_cfg.get("chapter_separator", "-")
 
-    # Build table
+    if caption_position == "above":
+        num = counter.peek_next_table(mode=mode, separator=sep)
+        ref_id = registry.register_table(num)
+        p_cap = add_table_caption(doc, "", counter, params)
+        if p_cap:
+            bm_id, bm_name = bm_mgr.table_bookmark(counter._table)
+            add_bookmark(p_cap, bm_id, bm_name)
+
     col_count = len(headers) if headers else (len(rows[0]) if rows else 1)
     all_rows = ([headers] if headers else []) + rows
     table = doc.add_table(rows=len(all_rows), cols=col_count)
-
     try:
         table.style = "Table Grid"
     except Exception:
@@ -155,25 +160,24 @@ def _render_table(doc, token_group, counter, params):
                     for run in para.runs:
                         run.bold = True
 
-    # Caption below
     if caption_position != "above":
-        add_table_caption(doc, "", counter, params)
+        num = counter.peek_next_table(mode=mode, separator=sep)
+        ref_id = registry.register_table(num)
+        p_cap = add_table_caption(doc, "", counter, params)
+        if p_cap:
+            bm_id, bm_name = bm_mgr.table_bookmark(counter._table)
+            add_bookmark(p_cap, bm_id, bm_name)
 
 
 def _parse_table_tokens(tokens, start_idx):
-    """
-    Parse markdown-it table tokens starting from table_open at start_idx.
-
-    Returns:
-        (headers, rows, end_idx)
-    """
+    """Parse markdown-it table tokens into headers and rows."""
     headers = []
     rows = []
     current_row = []
     in_thead = False
     in_tbody = False
 
-    i = start_idx + 1  # skip table_open
+    i = start_idx + 1
     while i < len(tokens) and tokens[i].type != "table_close":
         t = tokens[i]
         if t.type == "thead_open":
@@ -191,19 +195,18 @@ def _parse_table_tokens(tokens, start_idx):
                 headers = current_row
             elif in_tbody:
                 rows.append(current_row)
-        elif t.type in ("th_open", "td_open"):
-            pass
         elif t.type == "inline":
             current_row.append(t.content)
         i += 1
-    return headers, rows, i  # i now points at table_close
+    return headers, rows, i
 
 
-def _render_tokens(doc, tokens, params, counter):
+def _render_tokens(doc, tokens, params, counter, registry, bm_mgr):
     """Walk through markdown-it tokens and render to docx."""
     list_level = 0
     in_list = False
     list_type = "bullet"
+    heading_path = [0, 0, 0, 0, 0, 0]  # H1–H6 counters
 
     i = 0
     while i < len(tokens):
@@ -216,18 +219,28 @@ def _render_tokens(doc, tokens, params, counter):
             content = ""
             while i < len(tokens) and tokens[i].type != "heading_close":
                 if tokens[i].type == "inline":
+                    content = tokens[i].type == "inline" and tokens[i].content or ""
                     content = tokens[i].content
                 i += 1
 
-            # Track H1 for chapter numbering
+            # Update heading path and chapter counter
+            heading_path[level - 1] += 1
+            for j in range(level, 6):
+                heading_path[j] = 0
+
             if level == 1:
                 counter.advance_chapter()
+
+            ref_id = registry.register_heading(level, heading_path[:level])
 
             if level <= 3:
                 p = doc.add_paragraph()
                 p.style = doc.styles[f"Heading {level}"]
                 run = p.add_run(content)
                 _apply_heading_style(run, level, params)
+                # Add bookmark to heading
+                bm_id, bm_name = bm_mgr.heading_bookmark(heading_path[:level])
+                add_bookmark(p, bm_id, bm_name)
 
         # ── Paragraphs ──
         elif token.type == "paragraph_open":
@@ -240,11 +253,8 @@ def _render_tokens(doc, tokens, params, counter):
                     i += 1
 
                 if inline_token:
-                    # Check if this paragraph is just an image
                     children = inline_token.children or []
                     is_image_only = (
-                        len(children) == 1 and children[0].type == "image"
-                    ) or (
                         len(children) >= 1 and all(
                             c.type in ("image", "softbreak") for c in children
                         )
@@ -252,10 +262,10 @@ def _render_tokens(doc, tokens, params, counter):
                     if is_image_only:
                         for child in children:
                             if child.type == "image":
-                                # Build a synthetic token for image rendering
-                                _render_image(doc, child, counter, params)
+                                _render_image(doc, child, counter, registry, bm_mgr, params)
                     else:
-                        doc.add_paragraph(inline_token.content)
+                        text = registry.substitute(inline_token.content)
+                        doc.add_paragraph(text)
 
         # ── Lists ──
         elif token.type == "bullet_list_open":
@@ -283,7 +293,7 @@ def _render_tokens(doc, tokens, params, counter):
                 if tokens[i].type == "inline":
                     content = tokens[i].content
                 i += 1
-
+            content = registry.substitute(content)
             style = "List Bullet" if list_type == "bullet" else "List Number"
             if list_level > 1:
                 styled = f"{style} {list_level}"
@@ -295,8 +305,8 @@ def _render_tokens(doc, tokens, params, counter):
         # ── Tables ──
         elif token.type == "table_open":
             headers, rows, end_idx = _parse_table_tokens(tokens, i)
-            _render_table(doc, {"headers": headers, "rows": rows}, counter, params)
-            i = end_idx  # skip to table_close
+            _render_table(doc, {"headers": headers, "rows": rows}, counter, registry, bm_mgr, params)
+            i = end_idx
 
         # ── Code Blocks ──
         elif token.type == "fence":
@@ -315,9 +325,69 @@ def _render_tokens(doc, tokens, params, counter):
         i += 1
 
 
+def _pre_scan_references(tokens, params):
+    """
+    First pass: scan all tokens to pre-register all figures, tables, and headings.
+    Returns a fully populated ReferenceRegistry.
+
+    This enables forward references ({{ref:fig-1}} before the figure).
+    """
+    counter = CaptionCounter()
+    registry = ReferenceRegistry(params)
+    heading_path = [0, 0, 0, 0, 0, 0]
+
+    i = 0
+    while i < len(tokens):
+        t = tokens[i]
+
+        if t.type == "heading_open":
+            level = int(t.tag[1:])
+            heading_path[level - 1] += 1
+            for j in range(level, 6):
+                heading_path[j] = 0
+            if level == 1:
+                counter.advance_chapter()
+            registry.register_heading(level, heading_path[:level])
+
+        elif t.type == "paragraph_open":
+            # Look ahead for image
+            j = i + 1
+            while j < len(tokens) and tokens[j].type != "paragraph_close":
+                if tokens[j].type == "inline":
+                    children = tokens[j].children or []
+                    for child in children:
+                        if child.type == "image":
+                            images_cfg = params.get("images", {})
+                            mode = images_cfg.get("numbering_mode", "flat")
+                            sep = images_cfg.get("chapter_separator", "-")
+                            num = counter.peek_next_figure(mode=mode, separator=sep)
+                            registry.register_figure(num)
+                            counter.next_figure(mode=mode, separator=sep)
+                j += 1
+
+        elif t.type == "table_open":
+            tables_cfg = params.get("tables", {})
+            mode = tables_cfg.get("numbering_mode", "flat")
+            sep = tables_cfg.get("chapter_separator", "-")
+            num = counter.peek_next_table(mode=mode, separator=sep)
+            registry.register_table(num)
+            counter.next_table(mode=mode, separator=sep)
+            # Skip to table_close
+            while i < len(tokens) and tokens[i].type != "table_close":
+                i += 1
+
+        i += 1
+
+    return registry
+
+
 def render_docx(md_text, params, output_path):
     """
     Render normalized markdown text to a docx file.
+
+    Uses a two-pass approach:
+      Pass 1 (_pre_scan_references): scan all elements to build the reference map
+      Pass 2 (_render_tokens): actual docx rendering with all {{ref:*}} resolved
 
     Args:
         md_text: Normalized markdown string.
@@ -329,16 +399,18 @@ def render_docx(md_text, params, output_path):
     """
     doc = Document()
     md = MarkdownIt().enable("table")
-    counter = CaptionCounter()
-
-    # Phase 2: cover page
-    render_cover(doc, params)
-
-    # Phase 2: TOC field
-    render_toc(doc, params)
-
     tokens = md.parse(md_text)
-    _render_tokens(doc, tokens, params, counter)
+
+    # Pass 1: pre-scan to build full reference map (enables forward references)
+    registry = _pre_scan_references(tokens, params)
+
+    # Pass 2: actual render with all references pre-resolved
+    counter = CaptionCounter()
+    bm_mgr = BookmarkManager(params)
+
+    render_cover(doc, params)
+    render_toc(doc, params)
+    _render_tokens(doc, tokens, params, counter, registry, bm_mgr)
 
     doc.save(output_path)
     return output_path
