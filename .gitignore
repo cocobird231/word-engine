@@ -9,3 +9,9 @@ build/
 .tmp/
 .DS_Store
 .pytest_cache/
+output.docx
+output.pdf
+render_state.json
+documents/
+tests/fixtures/*.docx
+tests/fixtures/*.pdf
