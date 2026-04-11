@@ -1,0 +1,56 @@
+# params_caption_flat.yaml
+# Flat 模式 caption：全文連續編號（圖 1, 圖 2, 表 1, 表 2）
+meta:
+  schema_version: "1.0.0"
+  spec_name: "demo_caption_flat"
+  language: "zh-TW"
+
+project:
+  project_id: "DEMO-003"
+  document_title: "圖表 Caption 示範（Flat 模式）"
+  version: "v1.0"
+  status: "draft"
+  confidentiality: "internal"
+
+paths:
+  source_md: "./examples/phase2/B_caption_demo.md"
+  output_docx: "./out_caption_flat.docx"
+  output_pdf: "./out_caption_flat.pdf"
+  assets_dir: "./assets"
+
+page:
+  size: "A4"
+  orientation: "portrait"
+
+fonts:
+  east_asia_default: "標楷體"
+  latin_default: "Times New Roman"
+
+headings: {}
+paragraphs: {}
+
+colors:
+  text_primary: "#000000"
+  accent_primary: "#1F4E79"
+
+cover:
+  enabled: false
+
+toc:
+  enabled: false
+
+images:
+  insert_caption: true
+  caption_prefix: "圖"
+  numbering_mode: "flat"   # flat: 圖 1, 圖 2 全文連續
+  chapter_separator: "-"
+  caption_position: "below"
+  max_width_cm: 14.0
+  download_remote_images: false
+
+tables:
+  caption_enabled: true
+  caption_prefix: "表"
+  numbering_mode: "flat"   # flat: 表 1, 表 2 全文連續
+  chapter_separator: "-"
+  caption_position: "above"

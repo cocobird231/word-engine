@@ -1,0 +1,52 @@
+# params_review_fast.yaml
+# 快速迭代用：關閉 cover/toc，適合搭配 --skip-postfix 使用
+meta:
+  schema_version: "1.0.0"
+  spec_name: "demo_review_fast"
+  language: "zh-TW"
+
+project:
+  project_id: "DEMO-REVIEW"
+  document_title: "Review Loop 快速測試"
+  version: "v1.0"
+  status: "draft"
+  confidentiality: "internal"
+
+paths:
+  source_md: "./examples/phase2/D_review_loop_demo.md"
+  output_docx: "./out_review.docx"
+  output_pdf: "./out_review.pdf"
+  assets_dir: "./assets"
+
+page:
+  size: "A4"
+  orientation: "portrait"
+
+fonts:
+  east_asia_default: "標楷體"
+  latin_default: "Times New Roman"
+
+headings: {}
+paragraphs: {}
+
+colors:
+  text_primary: "#000000"
+  accent_primary: "#1F4E79"
+
+# 快速迭代：關閉封面和目錄減少渲染時間
+cover:
+  enabled: false
+
+toc:
+  enabled: false
+
+images:
+  insert_caption: false
+  download_remote_images: false
+
+tables:
+  caption_enabled: true
+  caption_prefix: "表"
+  numbering_mode: "flat"
+  chapter_separator: "-"
+  caption_position: "above"

@@ -1,0 +1,40 @@
+# params_invalid.yaml
+# 故意設計多個錯誤，用來測試 validator 是否能正確攔截
+# 預期 QC 應該失敗並列出以下錯誤：
+# 1. meta.spec_name 缺失
+# 2. meta.language 缺失
+# 3. project.project_id 缺失
+# 4. project.status 值無效（"archived" 不在允許清單）
+# 5. page.size 值無效（"B5" 不在允許清單）
+# 6. colors.text_primary 不是合法 HEX（"black" 不是 HEX）
+meta:
+  schema_version: "1.0.0"
+  # spec_name: 故意缺失
+  # language: 故意缺失
+
+project:
+  # project_id: 故意缺失
+  document_title: "有錯誤的 params 檔"
+  version: "v1.0"
+  status: "archived"      # 無效值（只允許 draft/review/final）
+  confidentiality: "internal"
+
+paths:
+  source_md: "./examples/phase2/A_basic_full.md"
+  output_docx: "./out_invalid.docx"
+  output_pdf: "./out_invalid.pdf"
+  assets_dir: "./assets"
+
+page:
+  size: "B5"              # 無效值（只允許 A4/Letter）
+  orientation: "portrait"
+
+fonts:
+  east_asia_default: "標楷體"
+  latin_default: "Times New Roman"
+
+headings: {}
+paragraphs: {}
+
+colors:
+  text_primary: "black"   # 無效值（不是 HEX #RRGGBB 格式）
