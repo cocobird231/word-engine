@@ -34,9 +34,12 @@ def _check_inline_markers(line_number, text, errors, warnings):
     if bold_markers % 2 != 0:
         errors.append(f"Line {line_number}: Unclosed bold marker (**)")
 
-    # ── Italic * check (excluding **) ──
+    # ── Italic * check (excluding ** and content inside backtick code spans) ──
+    # First remove inline code spans and {{ref:*}} patterns to avoid false positives
+    text_no_code = re.sub(r'`[^`]*`', '', text)  # remove backtick spans
+    text_no_code = re.sub(r'\{\{ref:[^}]*\}\}', '', text_no_code)  # remove {{ref:...}}
     # Remove all ** to isolate single * markers
-    text_no_bold = re.sub(r'\*\*', '', text)
+    text_no_bold = re.sub(r'\*\*', '', text_no_code)
     italic_markers = len(re.findall(r'(?<!\*)\*(?!\*)', text_no_bold))
     if italic_markers % 2 != 0:
         warnings.append(f"Line {line_number}: Possible unclosed italic marker (*)")

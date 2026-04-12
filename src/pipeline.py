@@ -258,6 +258,54 @@ def run_review(md_path, params_path, project_dir=".", label=None, skip_postfix=F
     }
 
 
+def run_status(project_dir=".", mark_reviewed=False):
+    """
+    Show current review loop status and render history, or mark current round as reviewed.
+
+    This is the user-facing command for Task 6 (Review / Delivery Flow).
+
+    Displays:
+    - Current review version and round
+    - Step-by-step completion status (qc_passed / rendered / postfixed / exported / review_checked)
+    - Paths to produced artifacts (docx, pdf)
+    - Render version history from render_state.json
+
+    Args:
+        project_dir: Project root directory.
+        mark_reviewed: If True, mark review_checked=True in review_state.json.
+    """
+    from src.state_manager.review_state import ReviewState
+    from src.state_manager.render_state import RenderState
+
+    review = ReviewState(project_dir)
+    render_state = RenderState(project_dir)
+
+    if mark_reviewed:
+        if review.current_version is None:
+            print("[STATUS] No active review round found. Run 'word-engine review' first.")
+            return
+        review.mark_step("review_checked")
+        print(f"[STATUS] Version v{review.current_version} marked as reviewed.")
+        print()
+
+    print(review.summary())
+
+    # Also show render version history
+    history = render_state.state.get("history", [])
+    if history:
+        print()
+        print("=" * 50)
+        print(f"  Render History ({len(history)} versions)")
+        print("=" * 50)
+        for entry in history[-5:]:  # Show last 5
+            print(f"  v{entry['version']} [{entry.get('label', '')}] {entry.get('timestamp', '')[:16]}")
+            if entry.get("output_docx"):
+                print(f"    docx: {entry['output_docx']}")
+        if len(history) > 5:
+            print(f"  ... and {len(history) - 5} earlier versions")
+        print("=" * 50)
+
+
 def run_all(md_path, params_path):
     """
     All-in-one pipeline (unversioned): QC → render → export.

@@ -17,7 +17,7 @@ Semantic notes:
   - Use `run` for quick end-to-end checks without version tracking.
 """
 import argparse
-from src.pipeline import run_qc, run_render, run_rerender, run_export, run_postfix, run_review, run_all
+from src.pipeline import run_qc, run_render, run_rerender, run_export, run_postfix, run_review, run_status, run_all
 
 
 def main():
@@ -106,6 +106,26 @@ def main():
         help="Skip UNO postfix step for faster iteration"
     )
 
+    # ── mark-reviewed ─────────────────────────────────────────────────────────
+    mark_parser = subparsers.add_parser(
+        "mark-reviewed",
+        help="Mark the current review version as human-reviewed (final step of review loop)."
+    )
+    mark_parser.add_argument(
+        "--project-dir", default=".", metavar="DIR",
+        help="Project root directory (default: .)"
+    )
+
+    # ── status ─────────────────────────────────────────────────────────────────
+    status_parser = subparsers.add_parser(
+        "status",
+        help="Show the current review loop status and render version history."
+    )
+    status_parser.add_argument(
+        "--project-dir", default=".", metavar="DIR",
+        help="Project root directory (default: .)"
+    )
+
     # ── run ──────────────────────────────────────────────────────────────────
     run_parser = subparsers.add_parser(
         "run",
@@ -141,6 +161,10 @@ def main():
             label=args.label,
             skip_postfix=args.skip_postfix,
         )
+    elif args.command == "mark-reviewed":
+        run_status(args.project_dir, mark_reviewed=True)
+    elif args.command == "status":
+        run_status(args.project_dir, mark_reviewed=False)
     elif args.command == "run":
         run_all(args.md, args.params)
     else:

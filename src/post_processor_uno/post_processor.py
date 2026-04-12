@@ -1,40 +1,49 @@
 """
-Word Engine - UNO Post-Processor (Phase 2)
+Word Engine - UNO Post-Processor (Phase 2 + Phase 3)
 
-Opens a .docx in LibreOffice headless mode via UNO API and performs:
-  1. Update all fields (TOC, page numbers, cross-references)
-  2. Save the modified document back in place
+Phase 2: LibreOffice headless re-save (triggers internal field update pipeline)
+Phase 3: True UNO socket bridge with explicit dispatcher calls
 
-This replaces the Phase 1 pass-through stub with a real UNO-driven implementation.
+## Field update capabilities
+When run_post_process() is called, it updates:
+  - TOC (Table of Contents) fields
+  - SEQ fields (figure/table caption numbering)
+  - REF fields (cross-references)
+  - PAGE/NUMPAGES fields (page numbers)
+  - All other document fields
 
-Phase 2 scope:
-  - Update all fields in the document
-  - Save as .docx
+## UNO socket bridge vs headless re-save
+  Headless re-save (Phase 2):
+    - Calls `soffice --convert-to docx` which re-saves through LO's filter
+    - Indirectly triggers field update via filter pipeline
+    - Less reliable for complex SEQ/REF fields; no explicit UpdateAllIndexes
 
-Phase 3 extensions (not yet implemented):
-  - Targeted paragraph-level edits via UNO
-  - Caption / numbering corrections
-  - Complex layout micro-adjustments via Writer API
+  UNO socket bridge (Phase 3):
+    - Starts LO with --accept socket listener
+    - Connects via python-uno, opens the docx
+    - Explicitly calls: UpdateAllIndexes + UpdateFields
+    - Closes and saves
+    - More reliable for SEQ/REF/TOC field updates
+    - Falls back to headless re-save if socket bridge fails
 
-Requirements:
+## Usage
+    result = run_post_process(docx_path)
+    # docx is updated in-place with all fields resolved
+
+## Known limitations
   - LibreOffice must be installed (soffice in PATH)
-  - python3-uno must be available (tested: LibreOffice 24.2.x)
-
-Technical approach:
-  We use a LibreOffice macro script executed via soffice --headless --macro.
-  This avoids the complex socket/pipe dance of the UNO bridge API and is more
-  portable across environments.
-
-  The macro script:
-    1. Opens the docx
-    2. Calls dispatcher.executeDispatch("UpdateAllIndexes")
-    3. Calls dispatcher.executeDispatch("UpdateFields")
-    4. Saves and closes
+  - python3-uno must be available
+  - UNO socket bridge starts a temporary LO instance; may not work in all envs
+  - Field display depends on LO's interpretation of Word field codes
 """
 import os
 import subprocess
 import shutil
 import tempfile
+import time
+
+UNO_PORT = 2002
+LO_STARTUP_TIMEOUT = 8  # seconds to wait for LO to start accepting connections
 
 
 class UNOError(Exception):
@@ -42,100 +51,193 @@ class UNOError(Exception):
     pass
 
 
-# ── LibreOffice macro (Basic) ──────────────────────────────────────────────
-# This macro is written to a temp file and executed via soffice --headless.
-_UNO_UPDATE_MACRO = """\
-import sys
-import os
-import subprocess
+def _try_uno_socket_bridge(docx_path):
+    """
+    Update all fields in a docx using the UNO socket bridge approach.
 
-def update_fields(docx_path):
-    macro_script = '''
-Sub UpdateDocFields
-    Dim sUrl As String
-    Dim oDoc As Object
-    Dim oText As Object
-    Dim oDispatcher As Object
+    Uses system python3 (which has the python-uno package) via subprocess
+    to avoid venv/uno module conflicts.
 
-    sUrl = ConvertToURL("{docx_path}")
-    
-    Dim oProps(0) As New com.sun.star.beans.PropertyValue
-    oProps(0).Name = "Hidden"
-    oProps(0).Value = True
-    
-    oDoc = StarDesktop.loadComponentFromURL(sUrl, "_blank", 0, oProps())
-    
-    oDispatcher = createUnoService("com.sun.star.frame.DispatchHelper")
-    oDispatcher.executeDispatch(oDoc.CurrentController.Frame, ".uno:UpdateAllIndexes", "", 0, Array())
-    oDispatcher.executeDispatch(oDoc.CurrentController.Frame, ".uno:UpdateFields", "", 0, Array())
-    
-    oDoc.store()
-    oDoc.close(True)
-End Sub
-'''.format(docx_path=docx_path.replace("\\\\", "/"))
-    return macro_script
+    Process:
+    1. Start LibreOffice headless with socket listener
+    2. Connect via python-uno (system python3)
+    3. Open the docx, run UpdateAllIndexes + UpdateFields
+    4. Save and close, terminate LibreOffice
 
-print(update_fields(sys.argv[1]))
+    Returns:
+        True if successful, False if failed (caller should fallback).
+    """
+    soffice = shutil.which("soffice") or shutil.which("libreoffice")
+    if not soffice:
+        return False
+
+    docx_abs = os.path.abspath(docx_path)
+
+    # UNO bridge script runs in system python3 (not venv) where python-uno is available
+    script = f"""
+import sys, os, time, subprocess
+
+soffice = r"{soffice}"
+docx_abs = r"{docx_abs}"
+UNO_PORT = {UNO_PORT}
+LO_STARTUP_TIMEOUT = {LO_STARTUP_TIMEOUT}
+
+lo_proc = subprocess.Popen(
+    [soffice, "--headless", "--norestore", "--nofirststartwizard",
+     f"--accept=socket,host=localhost,port={{UNO_PORT}};urp;StarOffice.ServiceManager"],
+    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+)
+
+try:
+    import uno
+    from com.sun.star.beans import PropertyValue
+
+    start = time.time()
+    ctx = None
+    while time.time() - start < LO_STARTUP_TIMEOUT:
+        try:
+            lctx = uno.getComponentContext()
+            resolver = lctx.ServiceManager.createInstanceWithContext(
+                "com.sun.star.bridge.UnoUrlResolver", lctx)
+            ctx = resolver.resolve(
+                f"uno:socket,host=localhost,port={{UNO_PORT}};urp;StarOffice.ComponentContext")
+            break
+        except Exception:
+            time.sleep(0.5)
+
+    if ctx is None:
+        sys.exit(1)
+
+    smgr = ctx.ServiceManager
+    desktop = smgr.createInstanceWithContext("com.sun.star.frame.Desktop", ctx)
+    file_url = uno.systemPathToFileUrl(docx_abs)
+
+    p_hidden = PropertyValue()
+    p_hidden.Name = "Hidden"
+    p_hidden.Value = True
+
+    doc = desktop.loadComponentFromURL(file_url, "_blank", 0, (p_hidden,))
+    if doc is None:
+        sys.exit(1)
+
+    dispatcher = smgr.createInstanceWithContext(
+        "com.sun.star.frame.DispatchHelper", ctx)
+    frame = doc.getCurrentController().getFrame()
+
+    dispatcher.executeDispatch(frame, ".uno:UpdateAllIndexes", "", 0, ())
+    dispatcher.executeDispatch(frame, ".uno:UpdateFields", "", 0, ())
+
+    doc.store()
+    doc.close(True)
+    print("UNO_OK")
+
+except Exception as e:
+    sys.stderr.write(str(e))
+    sys.exit(1)
+
+finally:
+    try:
+        lo_proc.terminate()
+        lo_proc.wait(timeout=5)
+    except Exception:
+        pass
 """
-
-
-def _write_macro_file(docx_path):
-    """Write a LibreOffice Basic macro to a temp .odt script and return path."""
-    # Use Python to generate the macro text, then inject it
-    macro_content = f"""
-Sub UpdateDocFields()
-    Dim sUrl As String
-    Dim oDoc As Object
-    Dim oDispatcher As Object
-    
-    sUrl = ConvertToURL("{docx_path.replace(chr(92), "/")}")
-    
-    Dim oProps(0) As New com.sun.star.beans.PropertyValue
-    oProps(0).Name = "Hidden"
-    oProps(0).Value = True
-    
-    oDoc = StarDesktop.loadComponentFromURL(sUrl, "_blank", 0, oProps())
-    
-    oDispatcher = createUnoService("com.sun.star.frame.DispatchHelper")
-    
-    ' Update all indexes (TOC, etc.)
-    oDispatcher.executeDispatch(oDoc.CurrentController.Frame, ".uno:UpdateAllIndexes", "", 0, Array())
-    
-    ' Update all fields
-    oDispatcher.executeDispatch(oDoc.CurrentController.Frame, ".uno:UpdateFields", "", 0, Array())
-    
-    ' Save in-place
-    oDoc.store()
-    oDoc.close(True)
-    
-    ' Exit LibreOffice after macro
-    StarDesktop.terminate()
-End Sub
-"""
-    tmp = tempfile.NamedTemporaryFile(suffix=".bas", mode="w", delete=False, encoding="utf-8")
-    tmp.write(macro_content)
+    tmp = tempfile.NamedTemporaryFile(suffix=".py", mode="w", delete=False, encoding="utf-8")
+    tmp.write(script)
     tmp.close()
-    return tmp.name
+
+    try:
+        result = subprocess.run(
+            ["python3", tmp.name],
+            capture_output=True, text=True, timeout=LO_STARTUP_TIMEOUT + 30,
+        )
+        return result.returncode == 0 and "UNO_OK" in result.stdout
+    except Exception:
+        return False
+    finally:
+        try:
+            os.unlink(tmp.name)
+        except Exception:
+            pass
+
+
+def _fallback_headless_resave(docx_path):
+    """
+    Fallback: use LibreOffice headless convert-to to re-save the docx.
+    This indirectly triggers LO's field update pipeline.
+    """
+    soffice = shutil.which("soffice") or shutil.which("libreoffice")
+    if not soffice:
+        raise UNOError("LibreOffice (soffice) not found in PATH.")
+
+    docx_path = os.path.abspath(docx_path)
+    output_dir = os.path.dirname(docx_path)
+
+    script = f"""
+import sys, os, subprocess, shutil
+
+soffice = "{soffice}"
+docx_path = r"{docx_path}"
+output_dir = r"{output_dir}"
+
+result = subprocess.run(
+    [soffice, "--headless", "--norestore",
+     "--infilter=writer8",
+     "--convert-to", "docx:MS Word 2007 XML",
+     "--outdir", output_dir, docx_path],
+    capture_output=True, text=True, timeout=60
+)
+if result.returncode != 0:
+    sys.stderr.write(result.stderr)
+    sys.exit(1)
+basename = os.path.splitext(os.path.basename(docx_path))[0]
+converted = os.path.join(output_dir, basename + ".docx")
+if os.path.exists(converted) and os.path.abspath(converted) != docx_path:
+    os.replace(converted, docx_path)
+print("OK")
+"""
+    tmp = tempfile.NamedTemporaryFile(suffix=".py", mode="w", delete=False, encoding="utf-8")
+    tmp.write(script)
+    tmp.close()
+    try:
+        result = subprocess.run(
+            ["python3", tmp.name],
+            capture_output=True, text=True, timeout=90,
+        )
+        if result.returncode != 0:
+            raise UNOError(f"Headless re-save failed: {result.stderr}")
+    except subprocess.TimeoutExpired:
+        raise UNOError("Headless re-save timed out (>90s).")
+    finally:
+        try:
+            os.unlink(tmp.name)
+        except Exception:
+            pass
 
 
 def run_post_process(docx_path, params=None):
     """
     Run UNO post-processing on a docx file.
 
-    Phase 2 actions:
-      1. Open the docx in LibreOffice headless via UNO
-      2. Update all fields (TOC, page numbers, cross-references)
-      3. Save the updated docx in-place
+    Phase 3 strategy:
+    1. Try UNO socket bridge first (explicit UpdateAllIndexes + UpdateFields)
+    2. Fall back to headless re-save if socket bridge fails
+
+    Fields updated:
+    - TOC (Table of Contents)
+    - SEQ fields (figure/table caption numbering from Phase 3)
+    - REF fields (cross-references from Phase 3)
+    - PAGE/NUMPAGES and other document fields
 
     Args:
-        docx_path: Path to the .docx file to post-process (modified in-place).
+        docx_path: Path to the .docx file to post-process (updated in-place).
         params: (Optional) params dict for future extensions.
 
     Returns:
         docx_path if successful.
 
     Raises:
-        UNOError on failure.
+        UNOError if both approaches fail.
     """
     if params is None:
         params = {}
@@ -145,108 +247,16 @@ def run_post_process(docx_path, params=None):
     if not os.path.exists(docx_path):
         raise UNOError(f"Input docx not found: {docx_path}")
 
-    soffice = shutil.which("soffice") or shutil.which("libreoffice")
-    if not soffice:
-        raise UNOError("LibreOffice (soffice) not found in PATH.")
-
     print(f"[UNO] Post-processing: {docx_path}")
 
-    macro_path = _write_macro_file(docx_path)
-
-    try:
-        # Use soffice --headless to run the macro
-        # The macro opens the file, updates fields, saves, and terminates LO
-        cmd = [
-            soffice,
-            "--headless",
-            "--norestore",
-            "--nofirststartwizard",
-            f"macro:///Standard.Module1.UpdateDocFields",
-        ]
-
-        # Alternative approach using --infilter and --convert to update fields:
-        # Since macro injection via CLI is complex, we use a Python-UNO bridge script
-        result = _run_with_python_uno(docx_path)
-        return result
-
-    finally:
-        # Clean up temp macro file
-        try:
-            os.unlink(macro_path)
-        except Exception:
-            pass
-
-
-def _run_with_python_uno(docx_path):
-    """
-    Use python-uno bridge to update document fields.
-
-    This runs a separate Python process with the LibreOffice UNO environment
-    to avoid conflicts with the current process's Python interpreter.
-    """
-    soffice = shutil.which("soffice") or shutil.which("libreoffice")
-
-    # Python UNO bridge script
-    update_script = f"""
-import sys
-import os
-
-# Ensure LO python paths are available
-import subprocess
-import shutil
-
-soffice = shutil.which("soffice") or shutil.which("libreoffice")
-docx_path = r"{docx_path}"
-
-# Use soffice headless to open, update fields, and save
-# via --headless --writer with UNO dispatch
-# We use the simpler approach: convert to same format, which triggers field update
-# in LibreOffice's internal filter
-
-import subprocess
-result = subprocess.run(
-    [soffice,
-     "--headless",
-     "--norestore",
-     "--infilter=writer8",
-     "--convert-to", "docx:MS Word 2007 XML",
-     "--outdir", os.path.dirname(docx_path),
-     docx_path],
-    capture_output=True, text=True, timeout=60
-)
-if result.returncode != 0:
-    sys.stderr.write(result.stderr)
-    sys.exit(1)
-# The converted file will have a different name — we need to check it
-basename = os.path.splitext(os.path.basename(docx_path))[0]
-converted = os.path.join(os.path.dirname(docx_path), basename + ".docx")
-if os.path.exists(converted) and os.path.abspath(converted) != docx_path:
-    os.replace(converted, docx_path)
-print("OK")
-"""
-
-    tmp_script = tempfile.NamedTemporaryFile(
-        suffix=".py", mode="w", delete=False, encoding="utf-8"
-    )
-    tmp_script.write(update_script)
-    tmp_script.close()
-
-    try:
-        result = subprocess.run(
-            ["python3", tmp_script.name],
-            capture_output=True, text=True, timeout=90,
-        )
-        if result.returncode != 0:
-            raise UNOError(
-                f"UNO post-processing failed (exit {result.returncode}):\n{result.stderr}"
-            )
-        print(f"[UNO] Fields updated successfully: {docx_path}")
+    # Try Phase 3 UNO socket bridge first
+    success = _try_uno_socket_bridge(docx_path)
+    if success:
+        print(f"[UNO] Fields updated via socket bridge: {docx_path}")
         return docx_path
 
-    except subprocess.TimeoutExpired:
-        raise UNOError("UNO post-processing timed out (>90s).")
-    finally:
-        try:
-            os.unlink(tmp_script.name)
-        except Exception:
-            pass
+    # Fallback to Phase 2 headless re-save
+    print(f"[UNO] Socket bridge unavailable, falling back to headless re-save")
+    _fallback_headless_resave(docx_path)
+    print(f"[UNO] Fields updated via headless re-save: {docx_path}")
+    return docx_path
