@@ -46,13 +46,18 @@ def _add_paragraph_shading(paragraph, bg_hex):
 
 
 def _add_run_shading(run, bg_hex):
-    """Add background highlight shading to a run via OOXML rPr/shd element."""
+    """Add background highlight shading to a run via OOXML rPr/shd element.
+    
+    Uses w:val='solid' which provides reliable character-level background shading
+    in both Word and LibreOffice, unlike 'clear' which can be invisible in some
+    rendering contexts.
+    """
     rPr = run._r.get_or_add_rPr()
     shd = OxmlElement("w:shd")
     bg = bg_hex.lstrip("#")
-    shd.set(qn("w:val"), "clear")
-    shd.set(qn("w:color"), "auto")
-    shd.set(qn("w:fill"), bg)
+    shd.set(qn("w:val"), "solid")   # 'solid' not 'clear' for reliable run-level shading
+    shd.set(qn("w:color"), bg)      # w:color is the pattern color (foreground of pattern)
+    shd.set(qn("w:fill"), bg)       # w:fill is the background fill color
     rPr.append(shd)
 
 
@@ -373,7 +378,8 @@ def _render_tokens(doc, tokens, params, counter, registry, bm_mgr):
             for j in range(level, 6):
                 heading_path[j] = 0
 
-            if level == 1:
+            chapter_level = int(params.get("caption_chapter_level", 2))
+            if level == chapter_level:
                 counter.advance_chapter()
 
             ref_id = registry.register_heading(level, heading_path[:level])
@@ -498,7 +504,8 @@ def _pre_scan_references(tokens, params):
             heading_path[level - 1] += 1
             for j in range(level, 6):
                 heading_path[j] = 0
-            if level == 1:
+            chapter_level = int(params.get("caption_chapter_level", 2))
+            if level == chapter_level:
                 counter.advance_chapter()
             registry.register_heading(level, heading_path[:level])
 

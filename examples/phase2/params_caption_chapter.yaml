@@ -18,6 +18,10 @@ paths:
   output_pdf: "./out_caption_chapter.pdf"
   assets_dir: "./assets"
 
+# caption_chapter_level: Which heading level triggers a chapter increment for caption numbering
+# Default: 2 (H2 = Chapter, per convention: H1 = Title, H2 = Chapter)
+caption_chapter_level: 2
+
 page:
   size: "A4"
   orientation: "portrait"
