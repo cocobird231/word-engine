@@ -46,7 +46,7 @@ toc:
 images:
   insert_caption: true
   caption_prefix: "圖"
-  numbering_mode: "chapter"   # chapter: 圖 1-1, 圖 2-1 依 H1 章節計數
+  numbering_mode: "chapter"   # chapter: 圖 1-1, 圖 2-1 依 H2 章節計數（H1=標題, H2=章節）
   chapter_separator: "-"
   caption_position: "below"
   max_width_cm: 14.0
@@ -55,6 +55,17 @@ images:
 tables:
   caption_enabled: true
   caption_prefix: "表"
-  numbering_mode: "chapter"   # chapter: 表 1-1, 表 2-1 依 H1 章節計數
+  numbering_mode: "chapter"   # chapter: 表 1-1, 表 2-1 依 H2 章節計數（H1=標題, H2=章節）
   chapter_separator: "-"
   caption_position: "above"
+# Code block and inline code styling
+code:
+  block:
+    font_family: "Consolas"
+    font_size_pt: 10.5
+    background_color: "#F2F2F2"
+    indent_left_cm: 0.5
+  inline:
+    font_family: "Consolas"
+    font_size_pt: 10.5
+    background_color: "#F2F2F2"

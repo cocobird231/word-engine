@@ -50,3 +50,14 @@ tables:
   numbering_mode: "flat"
   chapter_separator: "-"
   caption_position: "above"
+# Code block and inline code styling
+code:
+  block:
+    font_family: "Consolas"
+    font_size_pt: 10.5
+    background_color: "#F2F2F2"
+    indent_left_cm: 0.5
+  inline:
+    font_family: "Consolas"
+    font_size_pt: 10.5
+    background_color: "#F2F2F2"

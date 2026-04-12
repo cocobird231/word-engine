@@ -1,7 +1,5 @@
 # 圖表 Caption 與編號示範
 
-## 介紹
-
 本文件示範 word-engine 的圖表 caption 功能，包含 `flat` 與 `chapter` 兩種編號模式。
 
 ## 第一章：無序圖表（Flat 模式）
@@ -29,7 +27,7 @@
 
 ## 第二章：章節圖表（Chapter 模式）
 
-使用 `chapter` 模式時，圖表編號以 H1 章節號為前綴，如「圖 2-1」。
+使用 `chapter` 模式時，圖表編號以章節號為前綴，如「圖 2-1」。
 
 > **注意**：使用本文件搭配 `params_caption_chapter.yaml` 可觀察 chapter 模式效果。
 
@@ -41,5 +39,5 @@
 
 | 模組 | 功能描述 |
 |------|---------|
-| caption.py | 提供 CaptionCounter，管理 flat/chapter 編號 |
-| cross_reference.py | 提供 ReferenceRegistry，管理 {{ref:*}} 解析 |
+| caption.py | 提供 `CaptionCounter`，管理 flat/chapter 編號 |
+| cross_reference.py | 提供 `ReferenceRegistry`，管理 `{{ref:*}}` 解析 |
