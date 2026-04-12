@@ -22,6 +22,7 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 from src.renderer.cover import render_cover
+from src.renderer.seq_field import insert_ref_field
 from src.renderer.toc import render_toc
 from src.renderer.caption import CaptionCounter, add_figure_caption, add_table_caption
 from src.renderer.cross_reference import (
@@ -64,37 +65,25 @@ def _add_run_shading(run, bg_hex):
 
 def _add_anchor_hyperlink(paragraph, display_text, bookmark_name, params):
     """
-    Add an internal anchor hyperlink to a paragraph that links to a Word bookmark.
+    Add a Word REF field cross-reference to a paragraph.
 
-    This creates a Word internal hyperlink (w:hyperlink w:anchor) pointing to
-    the bookmark created by add_bookmark() for the referenced figure/table/heading.
-    
+    Phase 3 upgrade: Uses REF field (Word-updatable reference) instead of
+    static hyperlink. The REF field:
+    - Points to the bookmark on the SEQ caption
+    - Updates automatically when F9 / UNO field update runs
+    - \\h flag makes it a clickable hyperlink in Word
+
     Falls back to plain text if cross_references.hyperlink_enabled is False.
     """
     xref_cfg = params.get("cross_references", {})
     hyperlink_enabled = xref_cfg.get("hyperlink_enabled", True)
 
-    if not hyperlink_enabled:
-        paragraph.add_run(display_text)
-        return
-
-    # Create <w:hyperlink w:anchor="bookmark_name">
-    hyperlink = OxmlElement("w:hyperlink")
-    hyperlink.set(qn("w:anchor"), bookmark_name)
-
-    r = OxmlElement("w:r")
-    rPr = OxmlElement("w:rPr")
-    # Apply Hyperlink style (blue + underline)
-    rStyle = OxmlElement("w:rStyle")
-    rStyle.set(qn("w:val"), "Hyperlink")
-    rPr.append(rStyle)
-    r.append(rPr)
-
-    t = OxmlElement("w:t")
-    t.text = display_text
-    r.append(t)
-    hyperlink.append(r)
-    paragraph._p.append(hyperlink)
+    insert_ref_field(
+        paragraph=paragraph,
+        display_text=display_text,
+        bookmark_name=bookmark_name,
+        with_hyperlink=hyperlink_enabled,
+    )
 
 
 

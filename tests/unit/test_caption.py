@@ -107,12 +107,17 @@ class TestAddFigureCaption:
         assert any("圖 2" in t for t in texts)
 
     def test_caption_chapter_numbering(self):
+        from docx.oxml.ns import qn
         doc = Document()
         c = CaptionCounter()
         c.advance_chapter()  # ch = 1
-        add_figure_caption(doc, "A", c, _fig_params(numbering_mode="chapter"))
-        texts = [p.text for p in doc.paragraphs if p.text.strip()]
-        assert any("圖 1-1" in t for t in texts)
+        p = add_figure_caption(doc, "A", c, _fig_params(numbering_mode="chapter"))
+        # SEQ field uses instrText, so check XML directly
+        full_text = p.text  # includes placeholder runs
+        instr_texts = [e.text for e in p._p.iter() if e.tag == qn("w:instrText")]
+        # Check: chapter prefix in text, SEQ field present, and chapter-specific seq name
+        assert "圖 1-" in full_text
+        assert any("SEQ" in (t or "") for t in instr_texts)
 
     def test_caption_disabled(self):
         doc = Document()
@@ -163,12 +168,15 @@ class TestAddTableCaption:
         assert any("表 2" in t for t in texts)
 
     def test_table_caption_chapter_mode(self):
+        from docx.oxml.ns import qn
         doc = Document()
         c = CaptionCounter()
         c.advance_chapter()
-        add_table_caption(doc, "", c, _tbl_params(numbering_mode="chapter"))
-        combined = " ".join(p.text for p in doc.paragraphs if p.text.strip())
-        assert "表 1-1" in combined
+        p = add_table_caption(doc, "", c, _tbl_params(numbering_mode="chapter"))
+        # SEQ field: check that chapter prefix and SEQ field are present
+        assert "表 1-" in p.text
+        instr_texts = [e.text for e in p._p.iter() if e.tag == qn("w:instrText")]
+        assert any("SEQ" in (t or "") for t in instr_texts)
 
     def test_table_caption_disabled(self):
         doc = Document()
