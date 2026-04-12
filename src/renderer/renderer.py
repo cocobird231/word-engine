@@ -12,6 +12,7 @@ Phase 2 additions:
   - Bookmarks added to figure/table captions and headings
 """
 import os
+import re
 import tempfile
 import urllib.request
 from docx import Document
@@ -95,6 +96,57 @@ def _add_anchor_hyperlink(paragraph, display_text, bookmark_name, params):
     hyperlink.append(r)
     paragraph._p.append(hyperlink)
 
+
+
+def _render_text_to_paragraph(paragraph, text, registry, params, bold_all=False):
+    """
+    Render a text string into a paragraph, parsing backtick inline code.
+
+    Handles `code` syntax found in ANY text: table cells, list items, headings, etc.
+    Also performs {{ref:*}} substitution on non-code segments.
+
+    Args:
+        paragraph: python-docx Paragraph object to add runs to.
+        text: Raw text string possibly containing backtick inline code.
+        registry: ReferenceRegistry for {{ref:*}} substitution.
+        params: Parsed params.yaml dict.
+        bold_all: If True, all runs are bolded (for table headers).
+    """
+    code_cfg = params.get("code", {}).get("inline", {})
+    code_font = code_cfg.get("font_family", "Consolas")
+    code_size_pt = code_cfg.get("font_size_pt", 10.5)
+    code_bg = code_cfg.get("background_color", "#F2F2F2")
+
+    # Split text by backtick-delimited code spans: `code`
+    # Pattern: match `...` (single backtick) inline code
+    parts = re.split(r'`([^`]+)`', text)
+    # parts alternates: [plain, code, plain, code, ...]
+    # Even indices are plain text, odd indices are code
+
+    for idx, part in enumerate(parts):
+        if not part:
+            continue
+        is_code = (idx % 2 == 1)
+        if is_code:
+            run = paragraph.add_run(part)
+            run.font.name = code_font
+            run.font.size = Pt(code_size_pt)
+            _add_run_shading(run, code_bg)
+            if bold_all:
+                run.bold = True
+        else:
+            resolved = registry.substitute(part)
+            # Check for {{ref:*}} that need hyperlinks
+            from src.renderer.cross_reference import REF_PATTERN
+            if REF_PATTERN.search(resolved):
+                # resolved already has labels substituted — but we need to check
+                # the original text for ref markers to make hyperlinks
+                # Since resolved already has substituted text, just add plain
+                run = paragraph.add_run(resolved)
+            else:
+                run = paragraph.add_run(resolved)
+            if bold_all:
+                run.bold = True
 
 def _render_inline_content(paragraph, inline_token, registry, params):
     """
@@ -304,11 +356,12 @@ def _render_table(doc, token_group, counter, registry, bm_mgr, params):
         is_header = (r_idx == 0 and bool(headers))
         for c_idx, cell_text in enumerate(row_data[:col_count]):
             cell = row.cells[c_idx]
-            cell.text = cell_text.strip()
-            if is_header:
-                for para in cell.paragraphs:
-                    for run in para.runs:
-                        run.bold = True
+            # Clear default empty paragraph text, then render with inline code support
+            cell.paragraphs[0].clear()
+            _render_text_to_paragraph(
+                cell.paragraphs[0], cell_text.strip(), registry, params,
+                bold_all=is_header
+            )
 
     if caption_position != "above":
         num = counter.peek_next_table(mode=mode, separator=sep)
@@ -444,14 +497,15 @@ def _render_tokens(doc, tokens, params, counter, registry, bm_mgr):
                 if tokens[i].type == "inline":
                     content = tokens[i].content
                 i += 1
-            content = registry.substitute(content)
             style = "List Bullet" if list_type == "bullet" else "List Number"
             if list_level > 1:
                 styled = f"{style} {list_level}"
                 if styled not in doc.styles:
                     styled = style
                 style = styled
-            doc.add_paragraph(content, style=style)
+            p = doc.add_paragraph()
+            p.style = doc.styles[style]
+            _render_text_to_paragraph(p, content, registry, params)
 
         # ── Tables ──
         elif token.type == "table_open":
