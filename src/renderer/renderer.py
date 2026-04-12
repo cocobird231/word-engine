@@ -100,53 +100,122 @@ def _add_anchor_hyperlink(paragraph, display_text, bookmark_name, params):
 
 def _render_text_to_paragraph(paragraph, text, registry, params, bold_all=False):
     """
-    Render a text string into a paragraph, parsing backtick inline code.
+    Render a text string into a paragraph with full inline formatting support.
 
-    Handles `code` syntax found in ANY text: table cells, list items, headings, etc.
-    Also performs {{ref:*}} substitution on non-code segments.
+    Uses markdown-it to parse inline tokens, supporting:
+    - **bold** (strong)
+    - *italic* (em)
+    - `inline code` (code_inline, with Consolas font + shading)
+    - Plain text with {{ref:*}} substitution
 
     Args:
         paragraph: python-docx Paragraph object to add runs to.
-        text: Raw text string possibly containing backtick inline code.
+        text: Raw text string possibly containing inline markdown.
         registry: ReferenceRegistry for {{ref:*}} substitution.
         params: Parsed params.yaml dict.
-        bold_all: If True, all runs are bolded (for table headers).
+        bold_all: If True, all runs are additionally bolded (for table headers).
     """
     code_cfg = params.get("code", {}).get("inline", {})
     code_font = code_cfg.get("font_family", "Consolas")
     code_size_pt = code_cfg.get("font_size_pt", 10.5)
     code_bg = code_cfg.get("background_color", "#F2F2F2")
 
-    # Split text by backtick-delimited code spans: `code`
-    # Pattern: match `...` (single backtick) inline code
-    parts = re.split(r'`([^`]+)`', text)
-    # parts alternates: [plain, code, plain, code, ...]
-    # Even indices are plain text, odd indices are code
+    from src.renderer.cross_reference import REF_PATTERN
 
-    for idx, part in enumerate(parts):
-        if not part:
-            continue
-        is_code = (idx % 2 == 1)
-        if is_code:
-            run = paragraph.add_run(part)
+    # Use markdown-it to parse inline tokens from the text string
+    _md = MarkdownIt()
+    tokens = _md.parse(text)
+    # Get inline children from the first inline token
+    children = []
+    for t in tokens:
+        if t.type == "inline" and t.children:
+            children = t.children
+            break
+
+    if not children:
+        # Fallback: add as plain text
+        run = paragraph.add_run(registry.substitute(text))
+        if bold_all:
+            run.bold = True
+        return
+
+    i = 0
+    while i < len(children):
+        child = children[i]
+
+        if child.type == "code_inline":
+            run = paragraph.add_run(child.content)
             run.font.name = code_font
             run.font.size = Pt(code_size_pt)
             _add_run_shading(run, code_bg)
             if bold_all:
                 run.bold = True
-        else:
-            resolved = registry.substitute(part)
-            # Check for {{ref:*}} that need hyperlinks
-            from src.renderer.cross_reference import REF_PATTERN
-            if REF_PATTERN.search(resolved):
-                # resolved already has labels substituted — but we need to check
-                # the original text for ref markers to make hyperlinks
-                # Since resolved already has substituted text, just add plain
-                run = paragraph.add_run(resolved)
+
+        elif child.type == "strong_open":
+            i += 1
+            bold_text = ""
+            while i < len(children) and children[i].type != "strong_close":
+                if children[i].type == "text":
+                    bold_text += children[i].content
+                elif children[i].type == "code_inline":
+                    # code inside bold
+                    run = paragraph.add_run(children[i].content)
+                    run.bold = True
+                    run.font.name = code_font
+                    run.font.size = Pt(code_size_pt)
+                    _add_run_shading(run, code_bg)
+                    if bold_all:
+                        run.bold = True
+                    i += 1
+                    continue
+                i += 1
+            if bold_text:
+                run = paragraph.add_run(bold_text)
+                run.bold = True
+                if bold_all:
+                    run.bold = True
+
+        elif child.type == "em_open":
+            i += 1
+            em_text = ""
+            while i < len(children) and children[i].type != "em_close":
+                if children[i].type == "text":
+                    em_text += children[i].content
+                i += 1
+            if em_text:
+                run = paragraph.add_run(em_text)
+                run.italic = True
+                if bold_all:
+                    run.bold = True
+
+        elif child.type == "text":
+            resolved = registry.substitute(child.content)
+            if REF_PATTERN.search(child.content):
+                # Render refs as anchor hyperlinks
+                last_end = 0
+                for m in REF_PATTERN.finditer(child.content):
+                    if m.start() > last_end:
+                        run = paragraph.add_run(registry.substitute(child.content[last_end:m.start()]))
+                        if bold_all:
+                            run.bold = True
+                    ref_id = m.group(1)
+                    display = registry.resolve(ref_id)
+                    bm_name = ref_id.replace("-", "_")
+                    _add_anchor_hyperlink(paragraph, display, bm_name, params)
+                    last_end = m.end()
+                if last_end < len(child.content):
+                    run = paragraph.add_run(registry.substitute(child.content[last_end:]))
+                    if bold_all:
+                        run.bold = True
             else:
                 run = paragraph.add_run(resolved)
-            if bold_all:
-                run.bold = True
+                if bold_all:
+                    run.bold = True
+
+        elif child.type == "softbreak":
+            paragraph.add_run(" ")
+
+        i += 1
 
 def _render_inline_content(paragraph, inline_token, registry, params):
     """
