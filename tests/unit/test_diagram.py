@@ -340,10 +340,11 @@ class TestGraphvizIntegration:
             render_docx(md, _minimal_params(), out, assets_dir=str(tmp_path))
 
         doc = Document(out)
-        # Image should be embedded (no placeholder text about Graphviz)
-        placeholder_texts = [p.text for p in doc.paragraphs
-                             if "Graphviz" in p.text or "graphviz" in p.text.lower()]
-        assert len(placeholder_texts) == 0, f"Unexpected placeholder: {placeholder_texts}"
+        # Error placeholder paragraphs start with '[Graphviz'; caption lines are OK
+        error_texts = [p.text for p in doc.paragraphs if p.text.startswith("[Graphviz")]
+        assert len(error_texts) == 0, f"Unexpected error placeholder: {error_texts}"
+        has_img = any(p._p.xpath(".//a:blip") for p in doc.paragraphs)
+        assert has_img, "Image not embedded"
 
 
 class TestMermaidIntegration:

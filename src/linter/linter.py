@@ -10,6 +10,50 @@ Phase 3 additions:
 import re
 
 
+def _check_mermaid_block(block_content: str, start_line: int, errors: list, warnings: list):
+    """
+    Heuristic lint check for Mermaid diagram blocks.
+
+    Detects known invalid patterns that cause mmdc rendering to fail.
+    """
+    lines = block_content.split("\n")
+    for i, line in enumerate(lines, start=start_line + 1):
+        # Raw \n inside node labels is invalid in Mermaid (must use <br/> instead)
+        if r'\n' in line:
+            errors.append(
+                f"Line {i}: Mermaid: raw backslash-n '\\n' inside node label "
+                f"(use '<br/>' for line breaks instead)"
+            )
+        # Unclosed subgraph
+        if line.strip().startswith("subgraph") and not re.search(r'subgraph\s*\[', line):
+            pass  # simple check, not conclusive
+
+
+def _check_graphviz_block(block_content: str, start_line: int, errors: list, warnings: list):
+    """
+    Heuristic lint check for Graphviz/dot diagram blocks.
+
+    Checks for common structural issues that prevent rendering.
+    """
+    stripped = block_content.strip()
+
+    # Must start with a valid graph declaration
+    if not re.match(r'^\s*(strict\s+)?(di)?graph\s', stripped, re.IGNORECASE):
+        errors.append(
+            f"Line {start_line}: Graphviz: block does not start with "
+            f"'graph', 'digraph', or 'strict graph/digraph'"
+        )
+
+    # Count braces
+    opens = stripped.count('{')
+    closes = stripped.count('}')
+    if opens != closes:
+        errors.append(
+            f"Line {start_line}: Graphviz: unbalanced braces "
+            f"({{ = {opens}, }} = {closes})"
+        )
+
+
 def _check_inline_markers(line_number, text, errors, warnings):
     """
     Check for unclosed inline markers on a single line.
@@ -132,5 +176,36 @@ def lint_markdown(md_text):
     # ── Unclosed code fence ──
     if in_code_fence:
         errors.append(f"Line {code_fence_line}: Unclosed code fence (``` not closed)")
+
+    # ── Diagram block lint (Mermaid / Graphviz) ──────────────────────────────
+    # Second pass: extract fenced diagram blocks and run specialized checks
+    fence_pattern = re.compile(r"^```(mermaid|graphviz|dot)\s*$", re.MULTILINE)
+    all_lines = md_text.split("\n")
+    in_diag = False
+    diag_lang = ""
+    diag_start = 0
+    diag_buf = []
+    for lineno, line in enumerate(all_lines, start=1):
+        if not in_diag:
+            m = fence_pattern.match(line)
+            if m:
+                in_diag = True
+                diag_lang = m.group(1).lower()
+                diag_start = lineno
+                diag_buf = []
+        else:
+            if line.strip() == "```":
+                block = "\n".join(diag_buf)
+                if diag_lang == "mermaid":
+                    _check_mermaid_block(block, diag_start, errors, warnings)
+                elif diag_lang in ("graphviz", "dot"):
+                    _check_graphviz_block(block, diag_start, errors, warnings)
+                in_diag = False
+                diag_buf = []
+            else:
+                diag_buf.append(line)
+
+    if in_diag:
+        errors.append(f"Line {diag_start}: Unclosed diagram fence ({diag_lang})")
 
     return {"errors": errors, "warnings": warnings}

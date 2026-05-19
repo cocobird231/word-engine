@@ -684,6 +684,16 @@ def _render_tokens(doc, tokens, params, counter, registry, bm_mgr, md_dir="", as
                         run = p.add_run(f"[Graphviz 圖表 {_graphviz_count}: 無法嵌入]")
                         run.font.size = Pt(10)
                         run.italic = True
+                    else:
+                        # Diagram caption
+                        diag_cfg = params.get("diagrams", {})
+                        if diag_cfg.get("caption_enabled", True):
+                            prefix = diag_cfg.get("graphviz_caption_prefix", "圖 (Graphviz)")
+                            p_cap = doc.add_paragraph()
+                            p_cap.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                            r = p_cap.add_run(f"{prefix} {_graphviz_count}")
+                            r.font.size = Pt(10.5)
+                            r.italic = True
                 else:
                     p = doc.add_paragraph()
                     p.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -707,6 +717,16 @@ def _render_tokens(doc, tokens, params, counter, registry, bm_mgr, md_dir="", as
                         run = p.add_run(f"[Mermaid 圖表 {_mermaid_count}: 無法嵌入]")
                         run.font.size = Pt(10)
                         run.italic = True
+                    else:
+                        # Diagram caption
+                        diag_cfg = params.get("diagrams", {})
+                        if diag_cfg.get("caption_enabled", True):
+                            prefix = diag_cfg.get("mermaid_caption_prefix", "圖 (Mermaid)")
+                            p_cap = doc.add_paragraph()
+                            p_cap.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                            r = p_cap.add_run(f"{prefix} {_mermaid_count}")
+                            r.font.size = Pt(10.5)
+                            r.italic = True
                 else:
                     p = doc.add_paragraph()
                     p.alignment = WD_ALIGN_PARAGRAPH.CENTER
