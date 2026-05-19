@@ -371,11 +371,32 @@ def _resolve_image_src(src: str, md_dir: str, assets_dir: str, images_cfg: dict)
 
 
 def _insert_image_paragraph(doc, local_path: str, max_width_cm: float):
-    """Add a centered paragraph containing the image at local_path."""
+    """Add a centered paragraph containing the image at local_path.
+
+    Only scales down when the image exceeds max_width_cm.
+    Small images are inserted at their natural size.
+    """
+    from docx.shared import Cm
     p = doc.add_paragraph()
     p.alignment = WD_ALIGN_PARAGRAPH.CENTER
     run = p.add_run()
-    run.add_picture(local_path, width=Inches(max_width_cm / 2.54))
+    try:
+        from PIL import Image as PILImage
+        with PILImage.open(local_path) as img:
+            img_w_px, img_h_px = img.size
+            dpi = img.info.get("dpi", (96, 96))
+            dpi_x = dpi[0] if isinstance(dpi, (tuple, list)) else dpi
+            if dpi_x <= 0:
+                dpi_x = 96
+            img_w_cm = img_w_px / dpi_x * 2.54
+    except Exception:
+        # Fallback: assume image is wider than page; let max_width_cm govern
+        img_w_cm = max_width_cm + 1
+
+    if img_w_cm > max_width_cm:
+        run.add_picture(local_path, width=Cm(max_width_cm))
+    else:
+        run.add_picture(local_path)  # natural size
     return p
 
 
