@@ -20,7 +20,34 @@ from src.state_manager.render_state import RenderState
 from src.state_manager.review_state import ReviewState
 
 
-def run_qc(md_path, params_path):
+def _apply_cli_overrides(params: dict, **overrides) -> dict:
+    """
+    Apply CLI-provided overrides to params.project and related date fields.
+
+    Only fields with non-None values are applied.
+
+    Supported overrides:
+        project_id, project_name, author, organization, date
+
+    The 'date' override sets all of: created_date, updated_date.
+    """
+    project = params.setdefault("project", {})
+    if overrides.get("project_id") is not None:
+        project["project_id"] = overrides["project_id"]
+    if overrides.get("project_name") is not None:
+        project["project_name"] = overrides["project_name"]
+    if overrides.get("author") is not None:
+        project["author"] = overrides["author"]
+    if overrides.get("organization") is not None:
+        project["organization"] = overrides["organization"]
+    if overrides.get("date") is not None:
+        d = overrides["date"]
+        project["created_date"] = d
+        project["updated_date"] = d
+    return params
+
+
+def run_qc(md_path, params_path, project_id=None, project_name=None, author=None, organization=None, date=None):
     """
     QC pipeline: load → lint → validate → normalize → report.
 
@@ -29,6 +56,9 @@ def run_qc(md_path, params_path):
     """
     print(f"[QC] Loading project: md={md_path}, params={params_path}")
     project_data = load_project(md_path, params_path)
+    # Apply CLI overrides to loaded params
+    _apply_cli_overrides(project_data["params"], project_id=project_id, project_name=project_name,
+                         author=author, organization=organization, date=date)
 
     print("[QC] Linting markdown...")
     lint_results = lint_markdown(project_data["markdown"])
@@ -55,14 +85,14 @@ def run_qc(md_path, params_path):
     }
 
 
-def run_render(md_path, params_path, output_docx="output.docx"):
+def run_render(md_path, params_path, output_docx="output.docx", project_id=None, project_name=None, author=None, organization=None, date=None):
     """
     First-time render pipeline: QC → render → post-process.
 
     Use when: starting a fresh render from a refine.md and params.yaml.
     Does NOT version the output — use run_rerender() for versioned output.
     """
-    qc_result = run_qc(md_path, params_path)
+    qc_result = run_qc(md_path, params_path, project_id=project_id, project_name=project_name, author=author, organization=organization, date=date)
 
     if not qc_result["qc_passed"]:
         print("[RENDER] QC failed. Please fix issues before rendering.")
@@ -78,7 +108,7 @@ def run_render(md_path, params_path, output_docx="output.docx"):
     return final_docx
 
 
-def run_rerender(md_path, params_path, project_dir=".", label=None, force=False):
+def run_rerender(md_path, params_path, project_dir=".", label=None, force=False, project_id=None, project_name=None, author=None, organization=None, date=None):
     """
     Versioned re-render pipeline (Phase 2).
 
@@ -101,7 +131,7 @@ def run_rerender(md_path, params_path, project_dir=".", label=None, force=False)
     Returns:
         Path to the versioned docx, or None if QC failed.
     """
-    qc_result = run_qc(md_path, params_path)
+    qc_result = run_qc(md_path, params_path, project_id=project_id, project_name=project_name, author=author, organization=organization, date=date)
 
     if not qc_result["qc_passed"]:
         print("[RERENDER] QC failed. Please fix issues before re-rendering.")
@@ -176,7 +206,7 @@ def run_export(docx_path, output_pdf="output.pdf"):
     return pdf_path
 
 
-def run_review(md_path, params_path, project_dir=".", label=None, skip_postfix=False):
+def run_review(md_path, params_path, project_dir=".", label=None, skip_postfix=False, project_id=None, project_name=None, author=None, organization=None, date=None):
     """
     Full review loop pipeline (Phase 2).
 
@@ -202,7 +232,7 @@ def run_review(md_path, params_path, project_dir=".", label=None, skip_postfix=F
 
     # ── Step 1: QC ─────────────────────────────────────────────────────────
     print("[REVIEW] Step 1/4: QC check")
-    qc_result = run_qc(md_path, params_path)
+    qc_result = run_qc(md_path, params_path, project_id=project_id, project_name=project_name, author=author, organization=organization, date=date)
     if not qc_result["qc_passed"]:
         print("[REVIEW] QC failed — review loop aborted. Fix issues and retry.")
         return None
@@ -215,6 +245,8 @@ def run_review(md_path, params_path, project_dir=".", label=None, skip_postfix=F
         params_path=params_path,
         project_dir=project_dir,
         label=label,
+        project_id=project_id, project_name=project_name,
+        author=author, organization=organization, date=date,
     )
     if not docx_path:
         print("[REVIEW] Rerender failed — review loop aborted.")
@@ -308,7 +340,7 @@ def run_status(project_dir=".", mark_reviewed=False):
         print("=" * 50)
 
 
-def run_all(md_path, params_path):
+def run_all(md_path, params_path, project_id=None, project_name=None, author=None, organization=None, date=None):
     """
     All-in-one pipeline (unversioned): QC → render → export.
 
@@ -319,7 +351,7 @@ def run_all(md_path, params_path):
     output_docx = "output.docx"
     output_pdf = "output.pdf"
 
-    docx_path = run_render(md_path, params_path, output_docx)
+    docx_path = run_render(md_path, params_path, output_docx, project_id=project_id, project_name=project_name, author=author, organization=organization, date=date)
     if docx_path is None:
         print("[RUN] Pipeline aborted due to QC failure.")
         return None
