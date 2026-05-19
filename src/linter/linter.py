@@ -12,39 +12,90 @@ import re
 
 def _check_mermaid_block(block_content: str, start_line: int, errors: list, warnings: list):
     """
-    Heuristic lint check for Mermaid diagram blocks.
+    Lint check for Mermaid diagram blocks.
 
-    Detects known invalid patterns that cause mmdc rendering to fail.
+    Step 1 – Heuristic rules:
+      - Raw \\n inside node labels → should use <br/>
+
+    Step 2 – Tool validation (if mmdc is available):
+      - Attempt to render the block; if mmdc exits non-zero, report as error.
     """
+    import json, shutil, subprocess, tempfile
+
     lines = block_content.split("\n")
     for i, line in enumerate(lines, start=start_line + 1):
-        # Raw \n inside node labels is invalid in Mermaid (must use <br/> instead)
+        # Raw \n inside node labels is invalid in Mermaid
         if r'\n' in line:
             errors.append(
-                f"Line {i}: Mermaid: raw backslash-n '\\n' inside node label "
+                f"Line {i}: Mermaid: raw '\\n' inside node label "
                 f"(use '<br/>' for line breaks instead)"
             )
-        # Unclosed subgraph
-        if line.strip().startswith("subgraph") and not re.search(r'subgraph\s*\[', line):
-            pass  # simple check, not conclusive
+
+    # Tool validation via mmdc
+    mmdc = shutil.which("mmdc")
+    if mmdc is None:
+        warnings.append(f"Line {start_line}: Mermaid lint: mmdc not found, skipping render validation")
+        return
+
+    tmp_in = tmp_out = tmp_cfg = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".mmd", delete=False, encoding="utf-8") as f:
+            f.write(block_content)
+            tmp_in = f.name
+        tmp_out = tmp_in.replace(".mmd", "_lint.png")
+        puppeteer_cfg = {"args": ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]}
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False, encoding="utf-8") as pf:
+            json.dump(puppeteer_cfg, pf)
+            tmp_cfg = pf.name
+
+        result = subprocess.run(
+            [mmdc, "-i", tmp_in, "-o", tmp_out, "-p", tmp_cfg],
+            capture_output=True, timeout=30,
+        )
+        if result.returncode != 0 or not __import__("os").path.isfile(tmp_out):
+            # Summarise the mmdc error (trim to avoid flooding the report)
+            stderr_summary = (result.stderr.decode("utf-8", errors="replace")
+                              .strip().splitlines())
+            reason = next((l for l in stderr_summary if "Error" in l or "error" in l), "")
+            errors.append(
+                f"Line {start_line}: Mermaid: block fails to render "
+                f"(mmdc exit {result.returncode}){': ' + reason[:120] if reason else ''}"
+            )
+    except subprocess.TimeoutExpired:
+        warnings.append(f"Line {start_line}: Mermaid lint: mmdc timed out, skipping")
+    except Exception as exc:
+        warnings.append(f"Line {start_line}: Mermaid lint: tool error ({exc})")
+    finally:
+        for p in filter(None, [tmp_in, tmp_out, tmp_cfg]):
+            try:
+                __import__("os").unlink(p)
+            except Exception:
+                pass
 
 
 def _check_graphviz_block(block_content: str, start_line: int, errors: list, warnings: list):
     """
-    Heuristic lint check for Graphviz/dot diagram blocks.
+    Lint check for Graphviz/dot diagram blocks.
 
-    Checks for common structural issues that prevent rendering.
+    Step 1 – Heuristic rules:
+      - Must start with graph/digraph declaration
+      - Balanced braces
+
+    Step 2 – Tool validation (if dot is available):
+      - Run dot -Tsvg and check exit code; stderr indicates parse errors.
     """
+    import shutil, subprocess
+
     stripped = block_content.strip()
 
-    # Must start with a valid graph declaration
-    if not re.match(r'^\s*(strict\s+)?(di)?graph\s', stripped, re.IGNORECASE):
+    # Heuristic: valid declaration
+    if not re.match(r'^\s*(strict\s+)?(di)?graph\b', stripped, re.IGNORECASE):
         errors.append(
             f"Line {start_line}: Graphviz: block does not start with "
             f"'graph', 'digraph', or 'strict graph/digraph'"
         )
 
-    # Count braces
+    # Heuristic: balanced braces
     opens = stripped.count('{')
     closes = stripped.count('}')
     if opens != closes:
@@ -52,6 +103,30 @@ def _check_graphviz_block(block_content: str, start_line: int, errors: list, war
             f"Line {start_line}: Graphviz: unbalanced braces "
             f"({{ = {opens}, }} = {closes})"
         )
+
+    # Tool validation via dot
+    dot = shutil.which("dot")
+    if dot is None:
+        warnings.append(f"Line {start_line}: Graphviz lint: dot not found, skipping parse validation")
+        return
+
+    try:
+        result = subprocess.run(
+            [dot, "-Tsvg"],
+            input=block_content.encode("utf-8"),
+            capture_output=True, timeout=15,
+        )
+        if result.returncode != 0:
+            stderr_msg = result.stderr.decode("utf-8", errors="replace").strip().splitlines()
+            reason = next((l for l in stderr_msg if "error" in l.lower()), "")
+            errors.append(
+                f"Line {start_line}: Graphviz: dot parse error "
+                f"(exit {result.returncode}){': ' + reason[:120] if reason else ''}"
+            )
+    except subprocess.TimeoutExpired:
+        warnings.append(f"Line {start_line}: Graphviz lint: dot timed out, skipping")
+    except Exception as exc:
+        warnings.append(f"Line {start_line}: Graphviz lint: tool error ({exc})")
 
 
 def _check_inline_markers(line_number, text, errors, warnings):
