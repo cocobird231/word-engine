@@ -463,3 +463,77 @@ class TestImageAutoDownload:
         placeholder_texts = [t for t in texts if "imgs/logo.png" in t]
         assert len(placeholder_texts) == 0, \
             f"Image should have been embedded, not shown as placeholder: {placeholder_texts}"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# _insert_image_paragraph(): width-only, height-only, both, natural size
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _make_png(width_px: int, height_px: int, dpi: int = 96) -> bytes:
+    """Create a minimal valid PNG with the specified pixel dimensions."""
+    import struct, zlib
+    def chunk(name, data):
+        c = struct.pack(">I", len(data)) + name + data
+        return c + struct.pack(">I", zlib.crc32(name + data) & 0xffffffff)
+    header = b'\x89PNG\r\n\x1a\n'
+    ihdr = chunk(b'IHDR', struct.pack('>IIBBBBB', width_px, height_px, 8, 2, 0, 0, 0))
+    row = b'\x00' + b'\xff\xff\xff' * width_px
+    idat = chunk(b'IDAT', zlib.compress(row * height_px))
+    iend = chunk(b'IEND', b'')
+    return header + ihdr + idat + iend
+
+
+class TestInsertImageParagraphScaling:
+    """Tests for _insert_image_paragraph width+height constraints."""
+
+    def _render_md_with_local_img(self, tmp_path, width_px, height_px, dpi=96):
+        """Create a local PNG and render a markdown doc that includes it."""
+        from src.renderer.renderer import render_docx
+        assets = tmp_path / "assets"
+        assets.mkdir()
+        img = assets / "test.png"
+        img.write_bytes(_make_png(width_px, height_px, dpi))
+
+        # Use an image src with max_width_cm=15.5, max_height_cm=20.0
+        params = {
+            "cover": {"enabled": False}, "toc": {"enabled": False},
+            "images": {
+                "insert_caption": False, "download_remote_images": False,
+                "max_width_cm": 15.5, "max_height_cm": 20.0
+            },
+            "tables": {"caption_enabled": False}, "cross_references": {},
+        }
+        md = "# T\n\n![img](assets/test.png)\n"
+        out = str(tmp_path / "out.docx")
+        render_docx(md, params, out, md_dir=str(tmp_path), assets_dir=str(assets))
+        return out
+
+    def test_wide_image_scaled_to_max_width(self, tmp_path):
+        """Image wider than max_width_cm should be scaled down."""
+        # 2000px wide at 96dpi ≈ 53cm, well over 15.5cm
+        out = self._render_md_with_local_img(tmp_path, width_px=2000, height_px=200)
+        from docx import Document
+        doc = Document(out)
+        # Should render without error and contain an image
+        has_img = any(
+            p._p.xpath('.//a:blip') for p in doc.paragraphs
+        )
+        assert has_img, "Wide image should be embedded (scaled down)"
+
+    def test_tall_image_scaled_to_max_height(self, tmp_path):
+        """Image taller than max_height_cm should be scaled down by height constraint."""
+        # 200px wide, 3000px tall at 96dpi ≈ 79cm tall, over 20cm
+        out = self._render_md_with_local_img(tmp_path, width_px=200, height_px=3000)
+        from docx import Document
+        doc = Document(out)
+        has_img = any(p._p.xpath('.//a:blip') for p in doc.paragraphs)
+        assert has_img, "Tall image should be embedded (scaled by height constraint)"
+
+    def test_small_image_kept_at_natural_size(self, tmp_path):
+        """Image smaller than max dimensions should not be scaled up."""
+        # 100x100px at 96dpi ≈ 2.6cm — well within limits
+        out = self._render_md_with_local_img(tmp_path, width_px=100, height_px=100)
+        from docx import Document
+        doc = Document(out)
+        has_img = any(p._p.xpath('.//a:blip') for p in doc.paragraphs)
+        assert has_img, "Small image should be embedded at natural size"

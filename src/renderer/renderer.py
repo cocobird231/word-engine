@@ -370,11 +370,17 @@ def _resolve_image_src(src: str, md_dir: str, assets_dir: str, images_cfg: dict)
     return src if os.path.isfile(src) else None
 
 
-def _insert_image_paragraph(doc, local_path: str, max_width_cm: float):
+def _insert_image_paragraph(doc, local_path: str, max_width_cm: float,
+                              max_height_cm: float = 20.0):
     """Add a centered paragraph containing the image at local_path.
 
-    Only scales down when the image exceeds max_width_cm.
-    Small images are inserted at their natural size.
+    Scales down the image proportionally if it exceeds either max_width_cm or
+    max_height_cm. Uses the stricter (smaller) scale factor so both dimensions
+    are respected. Small images are kept at their natural size.
+
+    Args:
+        max_width_cm:  Maximum allowed width (default from params.images.max_width_cm).
+        max_height_cm: Maximum allowed height (default ~A4 body height minus header/footer).
     """
     from docx.shared import Cm
     p = doc.add_paragraph()
@@ -384,17 +390,22 @@ def _insert_image_paragraph(doc, local_path: str, max_width_cm: float):
         from PIL import Image as PILImage
         with PILImage.open(local_path) as img:
             img_w_px, img_h_px = img.size
-            dpi = img.info.get("dpi", (96, 96))
-            dpi_x = dpi[0] if isinstance(dpi, (tuple, list)) else dpi
-            if dpi_x <= 0:
-                dpi_x = 96
+            dpi_info = img.info.get("dpi", (96, 96))
+            dpi_x = (dpi_info[0] if isinstance(dpi_info, (tuple, list)) else dpi_info) or 96
+            dpi_y = (dpi_info[1] if isinstance(dpi_info, (tuple, list)) else dpi_info) or 96
             img_w_cm = img_w_px / dpi_x * 2.54
+            img_h_cm = img_h_px / dpi_y * 2.54
     except Exception:
-        # Fallback: assume image is wider than page; let max_width_cm govern
+        # Fallback: treat as oversized so max constraints are applied
         img_w_cm = max_width_cm + 1
+        img_h_cm = max_height_cm + 1
 
-    if img_w_cm > max_width_cm:
-        run.add_picture(local_path, width=Cm(max_width_cm))
+    scale_w = max_width_cm / img_w_cm if img_w_cm > max_width_cm else 1.0
+    scale_h = max_height_cm / img_h_cm if img_h_cm > max_height_cm else 1.0
+    scale = min(scale_w, scale_h)  # use stricter constraint
+
+    if scale < 1.0:
+        run.add_picture(local_path, width=Cm(img_w_cm * scale))
     else:
         run.add_picture(local_path)  # natural size
     return p
@@ -404,6 +415,7 @@ def _render_image(doc, token, counter, registry, bm_mgr, params, md_dir="", asse
     """Render an image inline token with figure caption and bookmark."""
     images_cfg = params.get("images", {})
     max_width_cm = images_cfg.get("max_width_cm", 15.5)
+    max_height_cm = images_cfg.get("max_height_cm", 20.0)
 
     src = ""
     alt = ""
@@ -434,7 +446,7 @@ def _render_image(doc, token, counter, registry, bm_mgr, params, md_dir="", asse
         local_path = _resolve_image_src(src, md_dir, assets_dir, images_cfg)
         if local_path:
             try:
-                _insert_image_paragraph(doc, local_path, max_width_cm)
+                _insert_image_paragraph(doc, local_path, max_width_cm, max_height_cm)
                 image_inserted = True
             except Exception:
                 pass
@@ -662,9 +674,10 @@ def _render_tokens(doc, tokens, params, counter, registry, bm_mgr, md_dir="", as
                 img_path = render_graphviz(token.content, assets_dir, _graphviz_count)
                 images_cfg = params.get("images", {})
                 max_width_cm = images_cfg.get("max_width_cm", 15.5)
+                max_height_cm = images_cfg.get("max_height_cm", 20.0)
                 if img_path and os.path.isfile(img_path):
                     try:
-                        _insert_image_paragraph(doc, img_path, max_width_cm)
+                        _insert_image_paragraph(doc, img_path, max_width_cm, max_height_cm)
                     except Exception:
                         p = doc.add_paragraph()
                         p.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -684,9 +697,10 @@ def _render_tokens(doc, tokens, params, counter, registry, bm_mgr, md_dir="", as
                 img_path = render_mermaid(token.content, assets_dir, _mermaid_count)
                 images_cfg = params.get("images", {})
                 max_width_cm = images_cfg.get("max_width_cm", 15.5)
+                max_height_cm = images_cfg.get("max_height_cm", 20.0)
                 if img_path and os.path.isfile(img_path):
                     try:
-                        _insert_image_paragraph(doc, img_path, max_width_cm)
+                        _insert_image_paragraph(doc, img_path, max_width_cm, max_height_cm)
                     except Exception:
                         p = doc.add_paragraph()
                         p.alignment = WD_ALIGN_PARAGRAPH.CENTER
