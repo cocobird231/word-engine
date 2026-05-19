@@ -138,3 +138,21 @@ class TestEdgeCases:
         render_cover(doc, params)
         texts = _doc_texts(doc)
         assert any("No Title" in t for t in texts)
+
+class TestH1TitleFallback:
+    def test_h1_title_overrides_params(self):
+        doc = Document()
+        params = _minimal_params()
+        params["project"]["document_title"] = "Params Title"
+        render_cover(doc, params, h1_title="H1 Title")
+        texts = _doc_texts(doc)
+        assert "H1 Title" in texts
+        assert "Params Title" not in texts
+
+    def test_falls_back_to_params_if_no_h1(self):
+        doc = Document()
+        params = _minimal_params()
+        params["project"]["document_title"] = "Params Title"
+        render_cover(doc, params, h1_title=None)
+        texts = _doc_texts(doc)
+        assert "Params Title" in texts

@@ -761,6 +761,29 @@ def _pre_scan_references(tokens, params):
     return registry
 
 
+def _extract_h1_title(tokens):
+    """
+    Extract the text of the first H1 heading from a markdown-it token list.
+
+    This is used to set the document title on the cover page, so that the
+    cover title reflects the actual document heading rather than params.yaml.
+
+    Returns:
+        The H1 text string, or None if no H1 is found.
+    """
+    i = 0
+    while i < len(tokens):
+        t = tokens[i]
+        if t.type == "heading_open" and t.tag == "h1":
+            i += 1
+            while i < len(tokens) and tokens[i].type != "heading_close":
+                if tokens[i].type == "inline":
+                    return tokens[i].content.strip()
+                i += 1
+        i += 1
+    return None
+
+
 def render_docx(md_text, params, output_path, md_dir="", assets_dir=None):
     """
     Render normalized markdown text to a docx file.
@@ -795,7 +818,8 @@ def render_docx(md_text, params, output_path, md_dir="", assets_dir=None):
     counter = CaptionCounter()
     bm_mgr = BookmarkManager(params)
 
-    render_cover(doc, params)
+    h1_title = _extract_h1_title(tokens)
+    render_cover(doc, params, h1_title=h1_title)
     render_toc(doc, params)
     _render_tokens(doc, tokens, params, counter, registry, bm_mgr, md_dir=md_dir, assets_dir=assets_dir)
 

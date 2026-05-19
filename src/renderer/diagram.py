@@ -78,6 +78,7 @@ def render_mermaid(code: str, assets_dir: str, index: int) -> "str | None":
     output_path = os.path.join(assets_dir, filename)
 
     tmp_input = None
+    tmp_puppeteer = None
     try:
         with tempfile.NamedTemporaryFile(
             mode="w", suffix=".mmd", delete=False, encoding="utf-8"
@@ -85,8 +86,17 @@ def render_mermaid(code: str, assets_dir: str, index: int) -> "str | None":
             f.write(code)
             tmp_input = f.name
 
+        # Write puppeteer config with --no-sandbox for sandboxed environments
+        import json
+        puppeteer_cfg = {"args": ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]}
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".json", delete=False, encoding="utf-8"
+        ) as pf:
+            json.dump(puppeteer_cfg, pf)
+            tmp_puppeteer = pf.name
+
         result = subprocess.run(
-            ["mmdc", "-i", tmp_input, "-o", output_path],
+            ["mmdc", "-i", tmp_input, "-o", output_path, "-p", tmp_puppeteer],
             capture_output=True,
             timeout=60,
         )
@@ -95,10 +105,11 @@ def render_mermaid(code: str, assets_dir: str, index: int) -> "str | None":
     except (FileNotFoundError, subprocess.TimeoutExpired):
         pass
     finally:
-        if tmp_input:
-            try:
-                os.unlink(tmp_input)
-            except Exception:
-                pass
+        for tmp in [tmp_input, tmp_puppeteer]:
+            if tmp:
+                try:
+                    os.unlink(tmp)
+                except Exception:
+                    pass
 
     return None
