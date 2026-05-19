@@ -69,7 +69,8 @@ def run_render(md_path, params_path, output_docx="output.docx"):
         return None
 
     print(f"[RENDER] Rendering to {output_docx}...")
-    docx_path = render_docx(qc_result["normalized_md"], qc_result["params"], output_docx)
+    md_dir = os.path.dirname(os.path.abspath(md_path))
+    docx_path = render_docx(qc_result["normalized_md"], qc_result["params"], output_docx, md_dir=md_dir)
 
     # Phase 1 stub: pass-through
     final_docx = run_post_process(docx_path, qc_result["params"])
@@ -124,7 +125,8 @@ def run_rerender(md_path, params_path, project_dir=".", label=None, force=False)
 
     # Render to versioned output path
     output_docx = state.versioned_docx_path(version)
-    docx_path = render_docx(qc_result["normalized_md"], qc_result["params"], output_docx)
+    md_dir = os.path.dirname(os.path.abspath(md_path))
+    docx_path = render_docx(qc_result["normalized_md"], qc_result["params"], output_docx, md_dir=md_dir)
 
     # Phase 2 stub: pass-through UNO post-process
     final_docx = run_post_process(docx_path, qc_result["params"])

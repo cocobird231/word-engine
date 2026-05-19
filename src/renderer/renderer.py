@@ -1,5 +1,5 @@
 """
-Word Engine - Renderer Module (Phase 1 + Phase 2)
+Word Engine - Renderer Module (Phase 1 + Phase 2 + Phase 3)
 Renders normalized markdown to docx using python-docx and markdown-it-py.
 
 Phase 2 additions:
@@ -10,11 +10,17 @@ Phase 2 additions:
   - H1 chapter tracking for 'chapter' numbering mode
   - Cross-reference: {{ref:fig-1}}, {{ref:tbl-1}}, {{ref:sec-1}} substitution
   - Bookmarks added to figure/table captions and headings
+
+Phase 3 additions:
+  - Graphviz / Mermaid fenced code blocks rendered to PNG and inserted as images
+  - Image sources: file:// URI, relative path (resolved from md_dir), URL download
+  - All fetched/generated images saved persistently under assets_dir
 """
+import hashlib
 import os
 import re
-import tempfile
 import urllib.request
+import urllib.parse
 from docx import Document
 from markdown_it import MarkdownIt
 from docx.shared import Pt, Inches, RGBColor
@@ -28,6 +34,7 @@ from src.renderer.caption import CaptionCounter, add_figure_caption, add_table_c
 from src.renderer.cross_reference import (
     ReferenceRegistry, BookmarkManager, add_bookmark
 )
+from src.renderer.diagram import render_graphviz, render_mermaid
 
 
 def _hex_to_rgb(hex_color):
@@ -302,7 +309,77 @@ def _heading_path_to_str(path):
     return ".".join(str(n) for n in path if n > 0)
 
 
-def _render_image(doc, token, counter, registry, bm_mgr, params):
+def _resolve_image_src(src: str, md_dir: str, assets_dir: str, images_cfg: dict) -> "str | None":
+    """
+    Resolve an image source string to a local file path.
+
+    Handles four source types:
+    - file:// URI       → decoded to a local path
+    - http:// / https:// URL → downloaded to assets_dir (cached by URL hash)
+    - Relative path     → resolved relative to md_dir, then cwd
+    - Absolute path     → used directly
+
+    Args:
+        src: The image src attribute from Markdown.
+        md_dir: Directory of the source Markdown file (for relative path resolution).
+        assets_dir: Directory where downloaded images are persistently saved.
+        images_cfg: The 'images' section of params.yaml.
+
+    Returns:
+        Local file path string, or None if the image cannot be resolved.
+    """
+    if not src:
+        return None
+
+    # ── file:// URI ──────────────────────────────────────────────────────────
+    if src.startswith("file://"):
+        parsed = urllib.parse.urlparse(src)
+        local = urllib.parse.unquote(parsed.path)
+        return local if os.path.isfile(local) else None
+
+    # ── HTTP / HTTPS URL ─────────────────────────────────────────────────────
+    if src.startswith("http://") or src.startswith("https://"):
+        if not images_cfg.get("download_remote_images", True):
+            return None
+        try:
+            url_hash = hashlib.md5(src.encode()).hexdigest()[:8]
+            # Determine extension from URL path (before query string)
+            url_path = urllib.parse.urlparse(src).path
+            ext = os.path.splitext(url_path)[1].lower() or ".png"
+            if ext not in (".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tiff"):
+                ext = ".png"
+            os.makedirs(assets_dir, exist_ok=True)
+            dest = os.path.join(assets_dir, f"image_{url_hash}{ext}")
+            if not os.path.isfile(dest):
+                urllib.request.urlretrieve(src, dest)
+            return dest if os.path.isfile(dest) else None
+        except Exception:
+            return None
+
+    # ── Relative path ────────────────────────────────────────────────────────
+    if not os.path.isabs(src):
+        if md_dir:
+            candidate = os.path.join(md_dir, src)
+            if os.path.isfile(candidate):
+                return os.path.abspath(candidate)
+        if os.path.isfile(src):
+            return os.path.abspath(src)
+        return None
+
+    # ── Absolute path ────────────────────────────────────────────────────────
+    return src if os.path.isfile(src) else None
+
+
+def _insert_image_paragraph(doc, local_path: str, max_width_cm: float):
+    """Add a centered paragraph containing the image at local_path."""
+    p = doc.add_paragraph()
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    run = p.add_run()
+    run.add_picture(local_path, width=Inches(max_width_cm / 2.54))
+    return p
+
+
+def _render_image(doc, token, counter, registry, bm_mgr, params, md_dir="", assets_dir="assets"):
     """Render an image inline token with figure caption and bookmark."""
     images_cfg = params.get("images", {})
     max_width_cm = images_cfg.get("max_width_cm", 15.5)
@@ -333,32 +410,13 @@ def _render_image(doc, token, counter, registry, bm_mgr, params):
     # Insert image or placeholder
     image_inserted = False
     if src:
-        local_path = None
-        tmp_file = None
-        try:
-            if src.startswith("http://") or src.startswith("https://"):
-                if images_cfg.get("download_remote_images", True):
-                    tmp_file = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
-                    urllib.request.urlretrieve(src, tmp_file.name)
-                    local_path = tmp_file.name
-            else:
-                if os.path.exists(src):
-                    local_path = src
-
-            if local_path:
-                p = doc.add_paragraph()
-                p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                run = p.add_run()
-                run.add_picture(local_path, width=Inches(max_width_cm / 2.54))
+        local_path = _resolve_image_src(src, md_dir, assets_dir, images_cfg)
+        if local_path:
+            try:
+                _insert_image_paragraph(doc, local_path, max_width_cm)
                 image_inserted = True
-        except Exception:
-            pass
-        finally:
-            if tmp_file:
-                try:
-                    os.unlink(tmp_file.name)
-                except Exception:
-                    pass
+            except Exception:
+                pass
 
     if not image_inserted:
         p = doc.add_paragraph()
@@ -462,12 +520,14 @@ def _parse_table_tokens(tokens, start_idx):
     return headers, rows, i
 
 
-def _render_tokens(doc, tokens, params, counter, registry, bm_mgr):
+def _render_tokens(doc, tokens, params, counter, registry, bm_mgr, md_dir="", assets_dir="assets"):
     """Walk through markdown-it tokens and render to docx."""
     list_level = 0
     in_list = False
     list_type = "bullet"
     heading_path = [0, 0, 0, 0, 0, 0]  # H1–H6 counters
+    _graphviz_count = 0
+    _mermaid_count = 0
 
     i = 0
     while i < len(tokens):
@@ -524,7 +584,7 @@ def _render_tokens(doc, tokens, params, counter, registry, bm_mgr):
                     if is_image_only:
                         for child in children:
                             if child.type == "image":
-                                _render_image(doc, child, counter, registry, bm_mgr, params)
+                                _render_image(doc, child, counter, registry, bm_mgr, params, md_dir=md_dir, assets_dir=assets_dir)
                     else:
                         p = doc.add_paragraph()
                         _render_inline_content(p, inline_token, registry, params)
@@ -571,27 +631,75 @@ def _render_tokens(doc, tokens, params, counter, registry, bm_mgr):
             _render_table(doc, {"headers": headers, "rows": rows}, counter, registry, bm_mgr, params)
             i = end_idx
 
-        # ── Code Blocks ──
+        # ── Code Blocks / Diagrams ──
         elif token.type == "fence":
-            code_content = token.content
-            if code_content.endswith("\n"):
-                code_content = code_content[:-1]
-            code_cfg = params.get("code", {}).get("block", {})
-            code_font = code_cfg.get("font_family", "Consolas")
-            code_size_pt = code_cfg.get("font_size_pt", 10.5)
-            code_bg = code_cfg.get("background_color", "#F2F2F2")
-            indent_cm = code_cfg.get("indent_left_cm", 0.5)
-            p = doc.add_paragraph()
-            try:
-                p.style = doc.styles["Macro Text"]
-            except KeyError:
-                p.style = doc.styles["Normal"]
-            run = p.add_run(code_content)
-            run.font.name = code_font
-            run.font.size = Pt(code_size_pt)
-            p.paragraph_format.left_indent = Inches(indent_cm)
-            # Apply background shading from params
-            _add_paragraph_shading(p, code_bg)
+            lang = (token.info or "").strip().lower().split()[0] if token.info else ""
+
+            # ── Graphviz diagram ──────────────────────────────────────────────
+            if lang in ("graphviz", "dot"):
+                _graphviz_count += 1
+                img_path = render_graphviz(token.content, assets_dir, _graphviz_count)
+                images_cfg = params.get("images", {})
+                max_width_cm = images_cfg.get("max_width_cm", 15.5)
+                if img_path and os.path.isfile(img_path):
+                    try:
+                        _insert_image_paragraph(doc, img_path, max_width_cm)
+                    except Exception:
+                        p = doc.add_paragraph()
+                        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                        run = p.add_run(f"[Graphviz 圖表 {_graphviz_count}: 無法嵌入]")
+                        run.font.size = Pt(10)
+                        run.italic = True
+                else:
+                    p = doc.add_paragraph()
+                    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                    run = p.add_run(f"[Graphviz 圖表 {_graphviz_count}: 需安裝 graphviz 或 dot CLI]")
+                    run.font.size = Pt(10)
+                    run.italic = True
+
+            # ── Mermaid diagram ───────────────────────────────────────────────
+            elif lang == "mermaid":
+                _mermaid_count += 1
+                img_path = render_mermaid(token.content, assets_dir, _mermaid_count)
+                images_cfg = params.get("images", {})
+                max_width_cm = images_cfg.get("max_width_cm", 15.5)
+                if img_path and os.path.isfile(img_path):
+                    try:
+                        _insert_image_paragraph(doc, img_path, max_width_cm)
+                    except Exception:
+                        p = doc.add_paragraph()
+                        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                        run = p.add_run(f"[Mermaid 圖表 {_mermaid_count}: 無法嵌入]")
+                        run.font.size = Pt(10)
+                        run.italic = True
+                else:
+                    p = doc.add_paragraph()
+                    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                    run = p.add_run(f"[Mermaid 圖表 {_mermaid_count}: 需安裝 mmdc (npm i -g @mermaid-js/mermaid-cli)]")
+                    run.font.size = Pt(10)
+                    run.italic = True
+
+            # ── Regular code block ────────────────────────────────────────────
+            else:
+                code_content = token.content
+                if code_content.endswith("\n"):
+                    code_content = code_content[:-1]
+                code_cfg = params.get("code", {}).get("block", {})
+                code_font = code_cfg.get("font_family", "Consolas")
+                code_size_pt = code_cfg.get("font_size_pt", 10.5)
+                code_bg = code_cfg.get("background_color", "#F2F2F2")
+                indent_cm = code_cfg.get("indent_left_cm", 0.5)
+                p = doc.add_paragraph()
+                try:
+                    p.style = doc.styles["Macro Text"]
+                except KeyError:
+                    p.style = doc.styles["Normal"]
+                run = p.add_run(code_content)
+                run.font.name = code_font
+                run.font.size = Pt(code_size_pt)
+                p.paragraph_format.left_indent = Inches(indent_cm)
+                # Apply background shading from params
+                _add_paragraph_shading(p, code_bg)
 
         i += 1
 
@@ -653,7 +761,7 @@ def _pre_scan_references(tokens, params):
     return registry
 
 
-def render_docx(md_text, params, output_path):
+def render_docx(md_text, params, output_path, md_dir="", assets_dir=None):
     """
     Render normalized markdown text to a docx file.
 
@@ -665,10 +773,17 @@ def render_docx(md_text, params, output_path):
         md_text: Normalized markdown string.
         params: Parsed params.yaml dict.
         output_path: Destination path for the .docx file.
+        md_dir: Directory of the source Markdown file, used to resolve relative
+                image paths. Defaults to current working directory.
+        assets_dir: Directory for saving downloaded images and rendered diagrams.
+                    Defaults to 'assets/' next to output_path.
 
     Returns:
         output_path
     """
+    if assets_dir is None:
+        assets_dir = os.path.join(os.path.dirname(os.path.abspath(output_path)), "assets")
+
     doc = Document()
     md = MarkdownIt().enable("table")
     tokens = md.parse(md_text)
@@ -682,7 +797,7 @@ def render_docx(md_text, params, output_path):
 
     render_cover(doc, params)
     render_toc(doc, params)
-    _render_tokens(doc, tokens, params, counter, registry, bm_mgr)
+    _render_tokens(doc, tokens, params, counter, registry, bm_mgr, md_dir=md_dir, assets_dir=assets_dir)
 
     doc.save(output_path)
     return output_path
