@@ -19,6 +19,14 @@ Semantic notes:
 import argparse
 from src.pipeline import run_qc, run_render, run_rerender, run_export, run_postfix, run_review, run_status, run_all
 
+_OVERRIDE_HELP = {
+    "project_id":   "Override params.project.project_id",
+    "project_name": "Override params.project.project_name",
+    "author":       "Override params.project.author",
+    "organization": "Override params.project.organization",
+    "date":         "Override created_date and updated_date (format: YYYY-MM-DD)",
+}
+
 
 def main():
     parser = argparse.ArgumentParser(
@@ -35,6 +43,8 @@ def main():
     )
     qc_parser.add_argument("--md", required=True, metavar="PATH", help="Path to refine.md")
     qc_parser.add_argument("--params", required=True, metavar="PATH", help="Path to params.yaml")
+    for dest, ht in _OVERRIDE_HELP.items():
+        qc_parser.add_argument(f"--{dest.replace('_', '-')}", default=None, metavar=dest.upper(), help=ht)
 
     # ── render ───────────────────────────────────────────────────────────────
     render_parser = subparsers.add_parser(
@@ -44,6 +54,8 @@ def main():
     render_parser.add_argument("--md", required=True, metavar="PATH", help="Path to refine.md")
     render_parser.add_argument("--params", required=True, metavar="PATH", help="Path to params.yaml")
     render_parser.add_argument("--output", default="output.docx", metavar="PATH", help="Output docx path")
+    for dest, ht in _OVERRIDE_HELP.items():
+        render_parser.add_argument(f"--{dest.replace('_', '-')}", default=None, metavar=dest.upper(), help=ht)
 
     # ── rerender ─────────────────────────────────────────────────────────────
     rerender_parser = subparsers.add_parser(
@@ -67,6 +79,8 @@ def main():
         "--force", action="store_true",
         help="Overwrite existing version artifacts without error"
     )
+    for dest, ht in _OVERRIDE_HELP.items():
+        rerender_parser.add_argument(f"--{dest.replace('_', '-')}", default=None, metavar=dest.upper(), help=ht)
 
     # ── export ───────────────────────────────────────────────────────────────
     export_parser = subparsers.add_parser(
@@ -133,21 +147,23 @@ def main():
     )
     run_parser.add_argument("--md", required=True, metavar="PATH", help="Path to refine.md")
     run_parser.add_argument("--params", required=True, metavar="PATH", help="Path to params.yaml")
+    for dest, ht in _OVERRIDE_HELP.items():
+        run_parser.add_argument(f"--{dest.replace('_', '-')}", default=None, metavar=dest.upper(), help=ht)
 
     # ── dispatch ──────────────────────────────────────────────────────────────
     args = parser.parse_args()
 
     if args.command == "qc":
-        run_qc(args.md, args.params)
+        run_qc(args.md, args.params, project_id=args.project_id, project_name=args.project_name, author=args.author, organization=args.organization, date=args.date)
     elif args.command == "render":
-        run_render(args.md, args.params, args.output)
+        run_render(args.md, args.params, args.output, project_id=args.project_id, project_name=args.project_name, author=args.author, organization=args.organization, date=args.date)
     elif args.command == "rerender":
         run_rerender(
             md_path=args.md,
             params_path=args.params,
             project_dir=args.project_dir,
             label=args.label,
-            force=args.force,
+            force=args.force, project_id=args.project_id, project_name=args.project_name, author=args.author, organization=args.organization, date=args.date,
         )
     elif args.command == "export":
         run_export(args.docx, args.output)
@@ -159,14 +175,14 @@ def main():
             params_path=args.params,
             project_dir=args.project_dir,
             label=args.label,
-            skip_postfix=args.skip_postfix,
+            skip_postfix=args.skip_postfix, project_id=args.project_id, project_name=args.project_name, author=args.author, organization=args.organization, date=args.date,
         )
     elif args.command == "mark-reviewed":
         run_status(args.project_dir, mark_reviewed=True)
     elif args.command == "status":
         run_status(args.project_dir, mark_reviewed=False)
     elif args.command == "run":
-        run_all(args.md, args.params)
+        run_all(args.md, args.params, project_id=args.project_id, project_name=args.project_name, author=args.author, organization=args.organization, date=args.date)
     else:
         parser.print_help()
 

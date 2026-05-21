@@ -3,8 +3,13 @@ Word Engine - Cover Page Renderer (Phase 2)
 
 Generates a basic formal cover page from params.yaml cover and project sections.
 
+Title priority (as of Phase 3+):
+  1. h1_title argument (extracted from the first H1 heading in the Markdown)
+  2. params['project']['document_title'] as fallback
+  3. "(No Title)" if both are absent
+
 Supported fields (controlled by cover.show_* flags):
-  - document_title  (always shown)
+  - document_title  (H1 or params fallback, always shown)
   - subtitle
   - project_id
   - version
@@ -49,7 +54,7 @@ def _add_text(doc, text, bold=False, size_pt=12, alignment="center"):
     return p
 
 
-def render_cover(doc, params):
+def render_cover(doc, params, h1_title=None):
     """
     Insert a cover page at the current position in the document.
 
@@ -73,7 +78,8 @@ def render_cover(doc, params):
     _add_blank(doc, 6)
 
     # ── Document Title ────────────────────────────────────────────────────
-    title = project.get("document_title") or "(No Title)"
+    # H1 from Markdown takes priority; fall back to params.project.document_title
+    title = h1_title or project.get("document_title") or "(No Title)"
     _add_text(doc, title, bold=True, size_pt=24, alignment=title_alignment)
 
     # ── Subtitle ──────────────────────────────────────────────────────────

@@ -1,17 +1,26 @@
+# Python
 __pycache__/
+.pytest_cache/
 *.pyc
 .venv/
-venv/
-.env
 *.log
-dist/
-build/
-.tmp/
-.DS_Store
-.pytest_cache/
-output.docx
-output.pdf
-render_state.json
-documents/
-tests/fixtures/*.docx
-tests/fixtures/*.pdf
+
+# Root-only: ignore .yaml and .md files in the project root directory only
+/*.yaml
+/*.md
+
+# Global: ignore rendered output files everywhere
+*.docx
+*.pdf
+
+# Rendered diagram images and temp files
+assets/
+diagram_*.png
+image_*.png
+*.mmd
+
+# Review / render state files
+review_state.json
+
+# Local variant files
+test_proj/

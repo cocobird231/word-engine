@@ -45,8 +45,8 @@ class TestBlankLines:
 
 
 class TestCleanMarkdown:
-    def test_sample_fixture(self):
-        with open("tests/fixtures/sample_refine.md", "r", encoding="utf-8") as f:
-            md = f.read()
+    def test_clean_inline_markdown(self):
+        """Clean markdown with inline code and formatting should pass lint."""
+        md = "# Title\n\n## Section\n\nParagraph with `code` and **bold** text.\n"
         result = lint_markdown(md)
         assert result["errors"] == []
