@@ -90,6 +90,42 @@ python word_engine.py run \
 
 ---
 
+## CLI Examples
+
+### QC Only
+```bash
+python word_engine.py qc --md refine.md --params params.yaml
+```
+
+### QC with metadata override
+```bash
+python word_engine.py qc \
+  --md refine.md --params params.yaml \
+  --project-id "PROJ-2026" --author "Alice" --date "2026-05-19"
+```
+
+### Render to DOCX
+```bash
+python word_engine.py render \
+  --md refine.md --params params.yaml \
+  --output report.docx \
+  --author "Bob" --organization "AcmeCorp"
+```
+
+### Export DOCX to PDF
+```bash
+python word_engine.py export --docx report.docx --output report.pdf
+```
+
+### One-shot (QC + Render + Export)
+```bash
+python word_engine.py run \
+  --md refine.md --params params.yaml \
+  --project-id "PROJ-001" --date "2026-05-19"
+```
+
+---
+
 ## Production Workflow (Versioned)
 
 For iterative document editing with version tracking:

@@ -10,14 +10,14 @@ meta:
     - pdf
 
 project:
-  project_id: "A0011150001"
+  project_id: ""
   project_name: ""
   document_title: ""
   subtitle: ""
   version: "v1.0"
   status: "draft"
-  author: "文書蝦蝦"
-  organization: "cococlaw"
+  author: ""
+  organization: ""
   reviewer: ""
   approver: ""
   created_date: ""
