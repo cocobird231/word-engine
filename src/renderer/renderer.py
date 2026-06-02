@@ -599,28 +599,31 @@ def _render_tokens(doc, tokens, params, counter, registry, bm_mgr, md_dir="", as
 
         # ── Paragraphs ──
         elif token.type == "paragraph_open":
-            if not in_list:
+            # Collect the inline token regardless of list context
+            i += 1
+            inline_token = None
+            while i < len(tokens) and tokens[i].type != "paragraph_close":
+                if tokens[i].type == "inline":
+                    inline_token = tokens[i]
                 i += 1
-                inline_token = None
-                while i < len(tokens) and tokens[i].type != "paragraph_close":
-                    if tokens[i].type == "inline":
-                        inline_token = tokens[i]
-                    i += 1
 
-                if inline_token:
-                    children = inline_token.children or []
-                    is_image_only = (
-                        len(children) >= 1 and all(
-                            c.type in ("image", "softbreak") for c in children
-                        )
+            if inline_token:
+                children = inline_token.children or []
+                is_image_only = (
+                    len(children) >= 1 and all(
+                        c.type in ("image", "softbreak") for c in children
                     )
-                    if is_image_only:
-                        for child in children:
-                            if child.type == "image":
-                                _render_image(doc, child, counter, registry, bm_mgr, params, md_dir=md_dir, assets_dir=assets_dir)
-                    else:
-                        p = doc.add_paragraph()
-                        _render_inline_content(p, inline_token, registry, params)
+                )
+                if is_image_only:
+                    # Always render image paragraphs (even inside list context)
+                    for child in children:
+                        if child.type == "image":
+                            _render_image(doc, child, counter, registry, bm_mgr, params, md_dir=md_dir, assets_dir=assets_dir)
+                elif not in_list:
+                    # Only render non-image paragraphs outside list context
+                    # (list items handle their own content via list_item_open)
+                    p = doc.add_paragraph()
+                    _render_inline_content(p, inline_token, registry, params)
 
         # ── Lists ──
         elif token.type == "bullet_list_open":
@@ -643,20 +646,56 @@ def _render_tokens(doc, tokens, params, counter, registry, bm_mgr, md_dir="", as
 
         elif token.type == "list_item_open":
             i += 1
-            content = ""
+            # First pass: collect top-level inline content for list item paragraph
+            # and gather inline tokens (some may be image-only paragraphs)
+            item_paragraphs = []  # (is_image_only, inline_token)
+            first_inline_done = False
             while i < len(tokens) and tokens[i].type != "list_item_close":
-                if tokens[i].type == "inline":
-                    content = tokens[i].content
+                if tokens[i].type == "paragraph_open":
+                    # Scan this paragraph block inside the list item
+                    i += 1
+                    para_inline = None
+                    while i < len(tokens) and tokens[i].type != "paragraph_close":
+                        if tokens[i].type == "inline":
+                            para_inline = tokens[i]
+                        i += 1
+                    if para_inline:
+                        children = para_inline.children or []
+                        is_img_only = (len(children) >= 1 and
+                                       all(c.type in ("image", "softbreak") for c in children))
+                        item_paragraphs.append((is_img_only, para_inline))
                 i += 1
+
             style = "List Bullet" if list_type == "bullet" else "List Number"
             if list_level > 1:
                 styled = f"{style} {list_level}"
                 if styled not in doc.styles:
                     styled = style
                 style = styled
-            p = doc.add_paragraph()
-            p.style = doc.styles[style]
-            _render_text_to_paragraph(p, content, registry, params)
+
+            # Render: first non-image paragraph as list bullet, then inline images
+            text_rendered = False
+            for is_img, para_inline in item_paragraphs:
+                if is_img:
+                    for child in (para_inline.children or []):
+                        if child.type == "image":
+                            _render_image(doc, child, counter, registry, bm_mgr, params,
+                                          md_dir=md_dir, assets_dir=assets_dir)
+                else:
+                    if not text_rendered:
+                        p = doc.add_paragraph()
+                        p.style = doc.styles[style]
+                        _render_text_to_paragraph(p, para_inline.content, registry, params)
+                        text_rendered = True
+                    # Additional non-image paragraphs within list item become body paragraphs
+                    else:
+                        p = doc.add_paragraph()
+                        _render_inline_content(p, para_inline, registry, params)
+
+            # If no paragraphs found (empty item), add blank
+            if not item_paragraphs:
+                p = doc.add_paragraph()
+                p.style = doc.styles[style]
 
         # ── Tables ──
         elif token.type == "table_open":
@@ -860,7 +899,13 @@ def render_docx(md_text, params, output_path, md_dir="", assets_dir=None):
         output_path
     """
     if assets_dir is None:
-        assets_dir = os.path.join(os.path.dirname(os.path.abspath(output_path)), "assets")
+        # Prefer assets/ relative to the source markdown file (md_dir).
+        # This allows `![img](assets/x.png)` in the md to resolve correctly
+        # regardless of where the output docx is written.
+        if md_dir:
+            assets_dir = os.path.join(os.path.abspath(md_dir), "assets")
+        else:
+            assets_dir = os.path.join(os.path.dirname(os.path.abspath(output_path)), "assets")
 
     doc = Document()
     md = MarkdownIt().enable("table")
