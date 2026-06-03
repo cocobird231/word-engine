@@ -37,6 +37,115 @@ from src.renderer.cross_reference import (
 from src.renderer.diagram import render_graphviz, render_mermaid
 
 
+def _restart_list_counter(paragraph):
+    """
+    Force an ordered list paragraph to restart its numbering at 1.
+
+    python-docx uses a shared numbering definition for "List Number" style,
+    so consecutive ordered list blocks continue from the previous count.
+    This function injects a numPr override on the paragraph to restart at 1.
+    """
+    pPr = paragraph._p.get_or_add_pPr()
+    # Find or create numPr
+    numPr = pPr.find(qn("w:numPr"))
+    if numPr is None:
+        numPr = OxmlElement("w:numPr")
+        pPr.append(numPr)
+    # Set ilvl = 0
+    ilvl = numPr.find(qn("w:ilvl"))
+    if ilvl is None:
+        ilvl = OxmlElement("w:ilvl")
+        numPr.append(ilvl)
+    ilvl.set(qn("w:val"), "0")
+    # Find numId value from existing numPr if present
+    numId_el = numPr.find(qn("w:numId"))
+    if numId_el is None:
+        # Try to get numId from the List Number style
+        try:
+            style = paragraph.style
+            numId_el = OxmlElement("w:numId")
+            # Look up numId from document numbering
+            doc = paragraph._p.getroottree().getroot()
+            # Find existing List Number numId
+            for body_p in doc.iter(qn("w:p")):
+                p_numId = body_p.find(".//" + qn("w:numId"))
+                if p_numId is not None:
+                    numId_el.set(qn("w:val"), p_numId.get(qn("w:val"), "1"))
+                    break
+            else:
+                numId_el.set(qn("w:val"), "1")
+            numPr.append(numId_el)
+        except Exception:
+            return
+    # Add lvlOverride to restart at 1 in the numbering definitions
+    # This is done by setting the paragraph's numPr start override
+    # via the <w:pPr><w:numPr><w:startOverride w:val="1"/> approach
+    # but that requires modifying the abstract num definition.
+    # Simpler approach: use a fresh numId by adding an override in the document.
+    # For simplicity, we use the pPr-level numPr and set ilvlOverride
+    # The most reliable cross-platform approach: set w:lvlOverride in the
+    # document's abstractNum via the numbering.xml part.
+    # Since that is complex, we use the practical approach:
+    # add w:p-level start override by removing and re-adding numId
+    pass  # The approach below handles this via the numId lookup trick
+
+
+def _get_or_create_restart_numid(doc_obj):
+    """
+    Get or create a numbering definition that starts at 1.
+    Returns the numId value (as string) to use.
+    """
+    from docx.oxml.ns import qn
+    from docx.oxml import OxmlElement
+
+    numbering_part = doc_obj.part.numbering_part
+    if numbering_part is None:
+        return None
+
+    numbering_elem = numbering_part._element
+
+    # Find existing "List Number" linked abstractNumId
+    list_num_abstract_id = None
+    for num in numbering_elem.findall(qn("w:num")):
+        numId_val = num.get(qn("w:numId"))
+        abstract_ref = num.find(qn("w:abstractNumId"))
+        if abstract_ref is not None:
+            # Check if abstractNum corresponds to a decimal list
+            abs_id = abstract_ref.get(qn("w:val"))
+            for abs_num in numbering_elem.findall(qn("w:abstractNum")):
+                if abs_num.get(qn("w:abstractNumId")) == abs_id:
+                    lvl = abs_num.find(qn("w:lvl"))
+                    if lvl is not None:
+                        numFmt = lvl.find(qn("w:numFmt"))
+                        if numFmt is not None and numFmt.get(qn("w:val")) == "decimal":
+                            list_num_abstract_id = abs_id
+                            break
+            if list_num_abstract_id:
+                # Create a new w:num with lvlOverride startOverride=1
+                max_num_id = max(
+                    (int(n.get(qn("w:numId"), 0))
+                     for n in numbering_elem.findall(qn("w:num"))),
+                    default=0
+                )
+                new_num_id = str(max_num_id + 1)
+                new_num = OxmlElement("w:num")
+                new_num.set(qn("w:numId"), new_num_id)
+                abs_ref = OxmlElement("w:abstractNumId")
+                abs_ref.set(qn("w:val"), list_num_abstract_id)
+                new_num.append(abs_ref)
+                # Add level override to restart at 1
+                override = OxmlElement("w:lvlOverride")
+                override.set(qn("w:ilvl"), "0")
+                start_override = OxmlElement("w:startOverride")
+                start_override.set(qn("w:val"), "1")
+                override.append(start_override)
+                new_num.append(override)
+                numbering_elem.append(new_num)
+                return new_num_id
+
+    return None
+
+
 def _hex_to_rgb(hex_color):
     """Convert #RRGGBB to (R, G, B) tuple."""
     hex_color = hex_color.lstrip("#")
@@ -561,6 +670,7 @@ def _render_tokens(doc, tokens, params, counter, registry, bm_mgr, md_dir="", as
     heading_path = [0, 0, 0, 0, 0, 0]  # H1–H6 counters
     _graphviz_count = 0
     _mermaid_count = 0
+    _ordered_list_restart_pending = False
 
     i = 0
     while i < len(tokens):
@@ -639,6 +749,7 @@ def _render_tokens(doc, tokens, params, counter, registry, bm_mgr, md_dir="", as
             in_list = True
             list_type = "ordered"
             list_level += 1
+            _ordered_list_restart_pending = True  # next list item should restart counter
         elif token.type == "ordered_list_close":
             list_level -= 1
             if list_level == 0:
@@ -686,6 +797,29 @@ def _render_tokens(doc, tokens, params, counter, registry, bm_mgr, md_dir="", as
                         p = doc.add_paragraph()
                         p.style = doc.styles[style]
                         _render_text_to_paragraph(p, para_inline.content, registry, params)
+                        # Restart ordered list counter on the first item of each new list block
+                        if list_type == "ordered" and _ordered_list_restart_pending:
+                            try:
+                                new_num_id = _get_or_create_restart_numid(doc)
+                                if new_num_id:
+                                    pPr = p._p.get_or_add_pPr()
+                                    numPr = pPr.find(qn("w:numPr"))
+                                    if numPr is None:
+                                        numPr = OxmlElement("w:numPr")
+                                        pPr.append(numPr)
+                                    ilvl = numPr.find(qn("w:ilvl"))
+                                    if ilvl is None:
+                                        ilvl = OxmlElement("w:ilvl")
+                                        numPr.append(ilvl)
+                                    ilvl.set(qn("w:val"), "0")
+                                    numId_el = numPr.find(qn("w:numId"))
+                                    if numId_el is None:
+                                        numId_el = OxmlElement("w:numId")
+                                        numPr.append(numId_el)
+                                    numId_el.set(qn("w:val"), new_num_id)
+                            except Exception:
+                                pass
+                            _ordered_list_restart_pending = False
                         text_rendered = True
                     # Additional non-image paragraphs within list item become body paragraphs
                     else:

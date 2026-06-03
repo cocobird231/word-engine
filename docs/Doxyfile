@@ -1,0 +1,34 @@
+# Doxyfile for word-engine Python source
+# Usage: doxygen docs/Doxyfile
+
+PROJECT_NAME           = "word-engine"
+PROJECT_BRIEF          = "Markdown to DOCX/PDF document engine"
+OUTPUT_DIRECTORY       = docs/doxygen
+
+# Python source input
+INPUT                  = src
+RECURSIVE              = YES
+FILE_PATTERNS          = *.py
+
+# Enable Python docstring parsing
+EXTRACT_ALL            = YES
+EXTRACT_PRIVATE        = NO
+EXTRACT_STATIC         = YES
+PYTHON_DOCSTRING       = YES
+
+# Output formats
+GENERATE_HTML          = YES
+GENERATE_LATEX         = NO
+GENERATE_XML           = NO
+
+# Diagrams
+HAVE_DOT               = NO
+CLASS_DIAGRAMS         = YES
+
+# Source browser
+SOURCE_BROWSER         = YES
+INLINE_SOURCES         = NO
+
+# Markdown support
+MARKDOWN_SUPPORT       = YES
+AUTOLINK_SUPPORT       = YES
