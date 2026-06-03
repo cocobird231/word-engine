@@ -757,13 +757,14 @@ def _render_tokens(doc, tokens, params, counter, registry, bm_mgr, md_dir="", as
 
         elif token.type == "list_item_open":
             i += 1
-            # First pass: collect top-level inline content for list item paragraph
-            # and gather inline tokens (some may be image-only paragraphs)
-            item_paragraphs = []  # (is_image_only, inline_token)
-            first_inline_done = False
+            # Collect: (a) text paragraphs, (b) image paragraphs, (c) sub-list token ranges
+            item_text_paras = []     # inline tokens for text content
+            item_img_paras = []      # inline tokens for image-only paragraphs
+            sub_list_ranges = []     # (start_idx, end_idx) of nested list blocks
+
             while i < len(tokens) and tokens[i].type != "list_item_close":
-                if tokens[i].type == "paragraph_open":
-                    # Scan this paragraph block inside the list item
+                ttype = tokens[i].type
+                if ttype == "paragraph_open":
                     i += 1
                     para_inline = None
                     while i < len(tokens) and tokens[i].type != "paragraph_close":
@@ -774,7 +775,24 @@ def _render_tokens(doc, tokens, params, counter, registry, bm_mgr, md_dir="", as
                         children = para_inline.children or []
                         is_img_only = (len(children) >= 1 and
                                        all(c.type in ("image", "softbreak") for c in children))
-                        item_paragraphs.append((is_img_only, para_inline))
+                        if is_img_only:
+                            item_img_paras.append(para_inline)
+                        else:
+                            item_text_paras.append(para_inline)
+                elif ttype in ("bullet_list_open", "ordered_list_open"):
+                    # Record sub-list token range for later rendering
+                    sub_start = i
+                    depth = 1
+                    close_type = "bullet_list_close" if ttype == "bullet_list_open" else "ordered_list_close"
+                    i += 1
+                    while i < len(tokens) and depth > 0:
+                        if tokens[i].type == ttype:
+                            depth += 1
+                        elif tokens[i].type == close_type:
+                            depth -= 1
+                        i += 1
+                    sub_list_ranges.append((sub_start, i - 1))  # inclusive end
+                    continue  # i already past the close
                 i += 1
 
             style = "List Bullet" if list_type == "bullet" else "List Number"
@@ -784,52 +802,54 @@ def _render_tokens(doc, tokens, params, counter, registry, bm_mgr, md_dir="", as
                     styled = style
                 style = styled
 
-            # Render: first non-image paragraph as list bullet, then inline images
-            text_rendered = False
-            for is_img, para_inline in item_paragraphs:
-                if is_img:
-                    for child in (para_inline.children or []):
-                        if child.type == "image":
-                            _render_image(doc, child, counter, registry, bm_mgr, params,
-                                          md_dir=md_dir, assets_dir=assets_dir)
-                else:
-                    if not text_rendered:
-                        p = doc.add_paragraph()
-                        p.style = doc.styles[style]
-                        _render_text_to_paragraph(p, para_inline.content, registry, params)
-                        # Restart ordered list counter on the first item of each new list block
-                        if list_type == "ordered" and _ordered_list_restart_pending:
-                            try:
-                                new_num_id = _get_or_create_restart_numid(doc)
-                                if new_num_id:
-                                    pPr = p._p.get_or_add_pPr()
-                                    numPr = pPr.find(qn("w:numPr"))
-                                    if numPr is None:
-                                        numPr = OxmlElement("w:numPr")
-                                        pPr.append(numPr)
-                                    ilvl = numPr.find(qn("w:ilvl"))
-                                    if ilvl is None:
-                                        ilvl = OxmlElement("w:ilvl")
-                                        numPr.append(ilvl)
-                                    ilvl.set(qn("w:val"), "0")
-                                    numId_el = numPr.find(qn("w:numId"))
-                                    if numId_el is None:
-                                        numId_el = OxmlElement("w:numId")
-                                        numPr.append(numId_el)
-                                    numId_el.set(qn("w:val"), new_num_id)
-                            except Exception:
-                                pass
-                            _ordered_list_restart_pending = False
-                        text_rendered = True
-                    # Additional non-image paragraphs within list item become body paragraphs
-                    else:
-                        p = doc.add_paragraph()
-                        _render_inline_content(p, para_inline, registry, params)
-
-            # If no paragraphs found (empty item), add blank
-            if not item_paragraphs:
+            # 1. Render the first text paragraph as the list item
+            if item_text_paras:
                 p = doc.add_paragraph()
                 p.style = doc.styles[style]
+                _render_text_to_paragraph(p, item_text_paras[0].content, registry, params)
+                if list_type == "ordered" and _ordered_list_restart_pending:
+                    try:
+                        new_num_id = _get_or_create_restart_numid(doc)
+                        if new_num_id:
+                            pPr = p._p.get_or_add_pPr()
+                            numPr = pPr.find(qn("w:numPr"))
+                            if numPr is None:
+                                numPr = OxmlElement("w:numPr")
+                                pPr.append(numPr)
+                            ilvl = numPr.find(qn("w:ilvl"))
+                            if ilvl is None:
+                                ilvl = OxmlElement("w:ilvl")
+                                numPr.append(ilvl)
+                            ilvl.set(qn("w:val"), "0")
+                            numId_el = numPr.find(qn("w:numId"))
+                            if numId_el is None:
+                                numId_el = OxmlElement("w:numId")
+                                numPr.append(numId_el)
+                            numId_el.set(qn("w:val"), new_num_id)
+                    except Exception:
+                        pass
+                    _ordered_list_restart_pending = False
+                # Additional text paragraphs in the same item
+                for extra in item_text_paras[1:]:
+                    p = doc.add_paragraph()
+                    _render_inline_content(p, extra, registry, params)
+            else:
+                # Empty or image-only list item
+                p = doc.add_paragraph()
+                p.style = doc.styles[style]
+
+            # 2. Render nested sub-lists by feeding their token ranges back into _render_tokens
+            for sub_start, sub_end in sub_list_ranges:
+                sub_tokens = tokens[sub_start:sub_end + 1]
+                _render_tokens(doc, sub_tokens, params, counter, registry, bm_mgr,
+                               md_dir=md_dir, assets_dir=assets_dir)
+
+            # 3. Render image paragraphs
+            for img_inline in item_img_paras:
+                for child in (img_inline.children or []):
+                    if child.type == "image":
+                        _render_image(doc, child, counter, registry, bm_mgr, params,
+                                      md_dir=md_dir, assets_dir=assets_dir)
 
         # ── Tables ──
         elif token.type == "table_open":

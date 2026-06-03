@@ -130,3 +130,29 @@ class TestNoRawMarkersInOutput:
             for row in tbl.rows:
                 for cell in row.cells:
                     assert "`" not in cell.text, f"Backtick found in table cell: {repr(cell.text)}"
+
+
+class TestNestedListRendering:
+    """Nested bullet list inside ordered list should render separately."""
+
+    def test_sub_bullet_in_ordered_list(self, tmp_path):
+        out = str(tmp_path / "out.docx")
+        md = (
+            "# T\n\n"
+            "1. Outer item\n"
+            "   - Sub bullet A\n"
+            "   - Sub bullet B\n"
+            "2. Second outer\n"
+        )
+        render_docx(md, _params(), out)
+        doc = Document(out)
+        styles = [(p.style.name, p.text) for p in doc.paragraphs if p.text.strip()]
+        # Outer should be List Number, inner should be List Bullet
+        list_number_items = [t for s, t in styles if s == "List Number"]
+        list_bullet_items = [t for s, t in styles if s.startswith("List Bullet")]
+        assert len(list_number_items) >= 2, f"Expected >=2 List Number items, got {list_number_items}"
+        assert len(list_bullet_items) >= 2, f"Expected >=2 List Bullet items, got {list_bullet_items}"
+        # Bullet items should NOT be numbered like "6.2" etc.
+        for t in list_bullet_items:
+            assert not any(c.isdigit() and '.' in t[:5] for c in t[:5]), \
+                f"Bullet item looks numbered: {repr(t)}"
