@@ -320,6 +320,42 @@ def _render_text_to_paragraph(paragraph, text, registry, params, bold_all=False)
         elif child.type == "softbreak":
             paragraph.add_run(" ")
 
+        elif child.type == "link_open":
+            # Collect link text until link_close, then add as hyperlink
+            href = ""
+            if child.attrs:
+                href = child.attrs.get("href", "")
+            i += 1
+            link_text = ""
+            while i < len(children) and children[i].type != "link_close":
+                if children[i].type == "text":
+                    link_text += children[i].content
+                i += 1
+            # Add as Word hyperlink
+            if href and link_text:
+                hyperlink = OxmlElement("w:hyperlink")
+                hyperlink.set(qn("r:id"),
+                    paragraph.part.relate_to(href, "http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink", is_external=True))
+                r = OxmlElement("w:r")
+                rPr = OxmlElement("w:rPr")
+                rStyle = OxmlElement("w:rStyle")
+                rStyle.set(qn("w:val"), "Hyperlink")
+                rPr.append(rStyle)
+                color = OxmlElement("w:color")
+                color.set(qn("w:val"), "0563C1")
+                rPr.append(color)
+                u = OxmlElement("w:u")
+                u.set(qn("w:val"), "single")
+                rPr.append(u)
+                r.append(rPr)
+                t = OxmlElement("w:t")
+                t.text = link_text
+                r.append(t)
+                hyperlink.append(r)
+                paragraph._p.append(hyperlink)
+            elif link_text:
+                paragraph.add_run(link_text)
+
         i += 1
 
 def _render_inline_content(paragraph, inline_token, registry, params):
@@ -779,6 +815,9 @@ def _render_tokens(doc, tokens, params, counter, registry, bm_mgr, md_dir="", as
                             item_img_paras.append(para_inline)
                         else:
                             item_text_paras.append(para_inline)
+                elif ttype == "fence":
+                    # Code block inside list item — record it for rendering
+                    sub_list_ranges.append(("fence", i, i))
                 elif ttype in ("bullet_list_open", "ordered_list_open"):
                     # Record sub-list token range for later rendering
                     sub_start = i
@@ -838,11 +877,68 @@ def _render_tokens(doc, tokens, params, counter, registry, bm_mgr, md_dir="", as
                 p = doc.add_paragraph()
                 p.style = doc.styles[style]
 
-            # 2. Render nested sub-lists by feeding their token ranges back into _render_tokens
-            for sub_start, sub_end in sub_list_ranges:
-                sub_tokens = tokens[sub_start:sub_end + 1]
-                _render_tokens(doc, sub_tokens, params, counter, registry, bm_mgr,
-                               md_dir=md_dir, assets_dir=assets_dir)
+            # 2. Render nested sub-lists and code blocks
+            for item in sub_list_ranges:
+                if isinstance(item, tuple) and len(item) == 3 and item[0] == "fence":
+                    # Render a fence (code block) token directly
+                    fence_token = tokens[item[1]]
+                    lang = (fence_token.info or "").strip().lower().split()[0] if fence_token.info else ""
+                    code_content = fence_token.content
+                    if code_content.endswith("\n"):
+                        code_content = code_content[:-1]
+                    # Check for diagram types
+                    if lang in ("graphviz", "dot"):
+                        _graphviz_count += 1
+                        from src.renderer.diagram import render_graphviz as _rg
+                        img_path = _rg(fence_token.content, assets_dir, _graphviz_count)
+                        images_cfg = params.get("images", {})
+                        max_width_cm = images_cfg.get("max_width_cm", 15.5)
+                        max_height_cm = images_cfg.get("max_height_cm", 20.0)
+                        if img_path and os.path.isfile(img_path):
+                            _insert_image_paragraph(doc, img_path, max_width_cm, max_height_cm)
+                        else:
+                            p = doc.add_paragraph()
+                            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                            run = p.add_run(f"[Graphviz 圖表: 需安裝 graphviz]")
+                            run.font.size = Pt(10)
+                            run.italic = True
+                    elif lang == "mermaid":
+                        _mermaid_count += 1
+                        from src.renderer.diagram import render_mermaid as _rm
+                        img_path = _rm(fence_token.content, assets_dir, _mermaid_count)
+                        images_cfg = params.get("images", {})
+                        max_width_cm = images_cfg.get("max_width_cm", 15.5)
+                        max_height_cm = images_cfg.get("max_height_cm", 20.0)
+                        if img_path and os.path.isfile(img_path):
+                            _insert_image_paragraph(doc, img_path, max_width_cm, max_height_cm)
+                        else:
+                            p = doc.add_paragraph()
+                            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                            run = p.add_run(f"[Mermaid 圖表: 需安裝 mmdc]")
+                            run.font.size = Pt(10)
+                            run.italic = True
+                    else:
+                        code_cfg = params.get("code", {}).get("block", {})
+                        code_font = code_cfg.get("font_family", "Consolas")
+                        code_size_pt = code_cfg.get("font_size_pt", 10.5)
+                        code_bg = code_cfg.get("background_color", "#F2F2F2")
+                        indent_cm = code_cfg.get("indent_left_cm", 0.5)
+                        p = doc.add_paragraph()
+                        try:
+                            p.style = doc.styles["Macro Text"]
+                        except KeyError:
+                            p.style = doc.styles["Normal"]
+                        run = p.add_run(code_content)
+                        run.font.name = code_font
+                        run.font.size = Pt(code_size_pt)
+                        p.paragraph_format.left_indent = Inches(indent_cm)
+                        _add_paragraph_shading(p, code_bg)
+                else:
+                    # Nested list range (start_idx, end_idx)
+                    sub_start, sub_end = item
+                    sub_tokens = tokens[sub_start:sub_end + 1]
+                    _render_tokens(doc, sub_tokens, params, counter, registry, bm_mgr,
+                                   md_dir=md_dir, assets_dir=assets_dir)
 
             # 3. Render image paragraphs
             for img_inline in item_img_paras:
